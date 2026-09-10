@@ -29,10 +29,22 @@ import {
 import { randomUUID } from 'crypto';
 import { chooseBotAction, chooseBotBallot, BOT_NAMES } from './bots';
 
-/** How the phone/TV is told about a phase, without ever driving it. */
+/** How the phones and the monitor are told about a phase, without ever driving it. */
 export interface Emitter {
   broadcast(code: string, event: string, payload: unknown): void;
   toToken(code: string, token: string, event: string, payload: unknown): void;
+  /** Take one socket out of a game's broadcast room. */
+  evict(code: string, socketId: string): void;
+  /** Take every socket out of a game's broadcast room, so a recycled code reaches nobody. */
+  closeRoom(code: string): void;
+}
+
+export interface SettingsPatch {
+  balance?: Balance;
+  custom?: Partial<CustomSettings> | null;
+  fastPhases?: boolean;
+  manualSteps?: boolean;
+  hiddenVotes?: boolean;
 }
 
 interface Runtime {
@@ -43,8 +55,10 @@ interface Runtime {
   timer: NodeJS.Timeout | null;
   tick: NodeJS.Timeout | null;
   botTimers: NodeJS.Timeout[];
-  /** The locked-in count the TV is allowed to see. Advanced on a 5s tick, never per submission. */
+  /** The locked-in count the monitor is allowed to see. Advanced on a 5s tick, never per submission. */
   lockedInPublic: number;
+  /** In manual-steps mode, what the host's Next press will run. */
+  pendingNext: (() => void) | null;
   runoffCandidates: string[] | null;
   voteRevealed: boolean;
 }
@@ -65,7 +79,7 @@ const FAST_SECONDS: Record<Phase | 'ROLES', number> = {
   GAME_OVER: 0,
 };
 
-/** Seconds the vote result stays on the TV before the game moves on. Drama, per section 10. */
+/** Seconds the vote result stays on the monitor before the game moves on. Drama, per section 10. */
 const VOTE_REVEAL_SECONDS = 8;
 const FAST_VOTE_REVEAL_SECONDS = 3;
 
@@ -92,7 +106,7 @@ export class GamesService implements OnModuleDestroy {
   // -- registry ------------------------------------------------------------
 
   private newCode(): string {
-    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O, they read badly on a TV
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O, they read badly from across a room
     for (let attempt = 0; attempt < 500; attempt++) {
       let code = '';
       for (let i = 0; i < 4; i++) code += letters[Math.floor(Math.random() * letters.length)];
@@ -114,6 +128,7 @@ export class GamesService implements OnModuleDestroy {
       tick: null,
       botTimers: [],
       lockedInPublic: 0,
+      pendingNext: null,
       runoffCandidates: null,
       voteRevealed: false,
     });
@@ -183,12 +198,39 @@ export class GamesService implements OnModuleDestroy {
     return true;
   }
 
-  removePlayer(code: string, playerId: string): boolean {
+  /**
+   * Lobby only. The player's phone is told, taken out of the broadcast room and sent back to
+   * the join screen; nothing stops them joining again with the same name.
+   */
+  kick(code: string, hostToken: string, playerId: string): { ok: boolean; error?: string } {
     const g = this.get(code);
-    if (!g || g.state.phase !== 'LOBBY') return false;
-    g.state.players = g.state.players.filter((p) => p.id !== playerId);
+    if (!g) return { ok: false, error: 'No game with that code.' };
+    if (g.hostToken !== hostToken) return { ok: false, error: 'Not the host.' };
+    if (g.state.phase !== 'LOBBY') return { ok: false, error: 'Players can only be removed in the lobby.' };
+    const p = g.state.players.find((x) => x.id === playerId);
+    if (!p) return { ok: false, error: 'No such player.' };
+
+    const socketId = g.sockets.get(p.token);
+    this.emitter?.toToken(code, p.token, 'kicked', {});
+    if (socketId) this.emitter?.evict(g.state.code, socketId);
+    g.sockets.delete(p.token);
+    g.state.players = g.state.players.filter((x) => x.id !== playerId);
+    g.state.config = resolveSettings(g.state.settings, Math.max(1, g.state.players.length));
     this.broadcastState(g);
-    return true;
+    return { ok: true };
+  }
+
+  /** End the game for everyone and send every screen back to the main menu. */
+  quit(code: string, hostToken: string): { ok: boolean; error?: string } {
+    const g = this.get(code);
+    if (!g) return { ok: false, error: 'No game with that code.' };
+    if (g.hostToken !== hostToken) return { ok: false, error: 'Not the host.' };
+    this.emitter?.broadcast(g.state.code, 'gameClosed', { reason: 'HOST_QUIT' });
+    this.clearTimers(g);
+    this.games.delete(g.state.code);
+    this.emitter?.closeRoom(g.state.code);
+    this.log.log(`closed game ${g.state.code}`);
+    return { ok: true };
   }
 
   bindSocket(code: string, token: string, socketId: string) {
@@ -228,21 +270,17 @@ export class GamesService implements OnModuleDestroy {
 
   // -- settings ------------------------------------------------------------
 
-  setSettings(
-    code: string,
-    hostToken: string,
-    balance?: Balance,
-    custom?: Partial<CustomSettings> | null,
-    fastPhases?: boolean,
-  ): { ok: boolean; error?: string } {
+  setSettings(code: string, hostToken: string, patch: SettingsPatch): { ok: boolean; error?: string } {
     const g = this.get(code);
     if (!g) return { ok: false, error: 'No game with that code.' };
     if (g.hostToken !== hostToken) return { ok: false, error: 'Not the host.' };
     if (g.state.phase !== 'LOBBY') return { ok: false, error: 'Settings are frozen once the game starts.' };
 
-    if (balance !== undefined) g.state.settings.balance = balance;
-    if (custom !== undefined) g.state.settings.custom = custom;
-    if (fastPhases !== undefined) g.state.fastPhases = fastPhases;
+    if (patch.balance !== undefined) g.state.settings.balance = patch.balance;
+    if (patch.custom !== undefined) g.state.settings.custom = patch.custom;
+    if (patch.fastPhases !== undefined) g.state.fastPhases = patch.fastPhases;
+    if (patch.manualSteps !== undefined) g.state.manualSteps = patch.manualSteps;
+    if (patch.hiddenVotes !== undefined) g.state.hiddenVotes = patch.hiddenVotes;
     g.state.config = resolveSettings(g.state.settings, Math.max(1, g.state.players.length));
     this.broadcastState(g);
     return { ok: true };
@@ -263,12 +301,42 @@ export class GamesService implements OnModuleDestroy {
     g.timer = null;
     g.tick = null;
     g.botTimers = [];
+    g.pendingNext = null;
   }
 
-  private schedule(g: Runtime, seconds: number, next: () => void) {
+  /**
+   * Arrange what happens next. A phase transition waits for the host's Next press in
+   * manual-steps mode; an `auto` transition (Act or Vote closing because everyone has locked
+   * in) always runs on its own.
+   */
+  private schedule(g: Runtime, seconds: number, next: () => void, auto = false) {
     if (g.timer) clearTimeout(g.timer);
+    g.timer = null;
+    g.pendingNext = null;
+    g.state.step += 1;
+    if (g.state.manualSteps && !auto) {
+      g.state.phaseEndsAt = 0;
+      g.pendingNext = next;
+      return;
+    }
     g.state.phaseEndsAt = Date.now() + seconds * 1000;
     g.timer = setTimeout(next, seconds * 1000);
+  }
+
+  /**
+   * Manual-steps mode only. `step` is the step the host's screen was showing, so a double
+   * press, a held Space bar or two host tabs can never advance the game twice.
+   */
+  next(code: string, hostToken: string, step: number): { ok: boolean; error?: string } {
+    const g = this.get(code);
+    if (!g) return { ok: false, error: 'No game with that code.' };
+    if (g.hostToken !== hostToken) return { ok: false, error: 'Not the host.' };
+    if (!g.state.manualSteps) return { ok: false, error: 'This game runs on timers.' };
+    if (step !== g.state.step || !g.pendingNext) return { ok: false, error: 'Already moved on.' };
+    const run = g.pendingNext;
+    g.pendingNext = null;
+    run();
+    return { ok: true };
   }
 
   start(code: string, hostToken: string): { ok: boolean; error?: string } {
@@ -384,26 +452,23 @@ export class GamesService implements OnModuleDestroy {
     const { state, outcome } = resolveVote(g.state);
     g.state = state;
     g.voteRevealed = true;
+
+    const reveal = g.state.fastPhases ? FAST_VOTE_REVEAL_SECONDS : VOTE_REVEAL_SECONDS;
+    if (g.state.phase === 'GAME_OVER') this.schedule(g, reveal, () => this.enterGameOver(g));
+    else if (outcome.kind === 'RUNOFF')
+      this.schedule(g, reveal, () => this.enterVote(g, 'RUNOFF', outcome.candidates));
+    else this.schedule(g, reveal, () => this.endRound(g));
+
     this.broadcastState(g);
     this.emitter?.broadcast(g.state.code, 'voteResult', {
-      ballots: state.vote?.ballots ?? [],
+      // With hidden votes the ballots stay on the server; only the outcome goes out.
+      ballots: g.state.hiddenVotes ? [] : (state.vote?.ballots ?? []),
       outcome:
         outcome.kind === 'SCAN'
           ? { kind: 'SCAN', playerId: outcome.playerId, revealedRole: outcome.role }
           : outcome,
     });
     this.pushSpectatorStates(g);
-
-    const reveal = g.state.fastPhases ? FAST_VOTE_REVEAL_SECONDS : VOTE_REVEAL_SECONDS;
-    if (g.state.phase === 'GAME_OVER') {
-      this.schedule(g, reveal, () => this.enterGameOver(g));
-      return;
-    }
-    if (outcome.kind === 'RUNOFF') {
-      this.schedule(g, reveal, () => this.enterVote(g, 'RUNOFF', outcome.candidates));
-      return;
-    }
-    this.schedule(g, reveal, () => this.endRound(g));
   }
 
   private endRound(g: Runtime) {
@@ -455,7 +520,7 @@ export class GamesService implements OnModuleDestroy {
     const living = livingPlayers(g.state);
     if (living.every((x) => g.state.submissions[x.id])) {
       g.lockedInPublic = living.length;
-      this.schedule(g, 1, () => this.enterResolve(g));
+      this.schedule(g, 1, () => this.enterResolve(g), true);
       this.broadcastState(g);
       this.emitPhase(g);
     }
@@ -474,13 +539,13 @@ export class GamesService implements OnModuleDestroy {
     const res = castBallot(g.state, p.id, choice);
     if (!res.ok) return { ok: false, error: res.error };
     g.state = res.state;
-    this.broadcastState(g);
 
     const living = livingPlayers(g.state);
-    if (g.state.vote && living.every((x) => g.state.vote!.ballots.some((b) => b.voterId === x.id))) {
-      this.schedule(g, 1, () => this.closeVote(g));
-      this.emitPhase(g);
-    }
+    const everyoneIn =
+      g.state.vote && living.every((x) => g.state.vote!.ballots.some((b) => b.voterId === x.id));
+    if (everyoneIn) this.schedule(g, 1, () => this.closeVote(g), true);
+    this.broadcastState(g);
+    if (everyoneIn) this.emitPhase(g);
     return { ok: true };
   }
 

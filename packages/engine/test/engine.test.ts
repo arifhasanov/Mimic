@@ -18,6 +18,7 @@ import {
   startGame,
   startVote,
   toPublicState,
+  upcomingStep,
   type GameState,
   type RoomId,
 } from '../src/index.js';
@@ -405,5 +406,111 @@ describe('17/18. the settings resolver', () => {
     s.settings = { balance: 0, custom: { aliens: 4 } };
     s = startGame(s, rng());
     expect(s.players.filter((p) => p.role === 'MIMIC')).toHaveLength(4);
+  });
+});
+
+// Hidden votes ---------------------------------------------------------------
+describe('hidden votes', () => {
+  it('never lets a ballot leave the server — not live, not after, not in the log', async () => {
+    const { resolveVote } = await import('../src/index.js');
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.hiddenVotes = true;
+    s.xrayOnline = true;
+    s.powerCells = 4;
+    s = startVote(s);
+    const ann = byName(s, 'Ann');
+    for (const p of s.players.filter((x) => x.id !== ann.id)) s = castBallot(s, p.id, ann.id).state;
+    s = resolveVote(s).state;
+
+    const pub = toPublicState(s);
+    expect(pub.vote!.ballots).toEqual([]);
+    expect(pub.log.some((e) => 'ballots' in e)).toBe(false);
+    expect(JSON.stringify(pub)).not.toContain('voterId');
+    // The outcome is still public: that is the whole point of a scan.
+    expect(pub.vote!.result).toMatchObject({ kind: 'SCAN', playerId: ann.id, revealed: 'MIMIC' });
+    // ...and who has voted is participation, not a result, so it stays.
+    expect(pub.vote!.voted).toHaveLength(5);
+  });
+
+  it('shows ballots as normal when the mode is off', async () => {
+    const { resolveVote } = await import('../src/index.js');
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.xrayOnline = true;
+    s.powerCells = 4;
+    s = startVote(s);
+    for (const p of s.players) s = castBallot(s, p.id, 'SKIP').state;
+    s = resolveVote(s).state;
+    expect(toPublicState(s).vote!.ballots).toHaveLength(6);
+  });
+
+  it('names both modes in the settings line', () => {
+    const s = makeGame(6);
+    s.manualSteps = true;
+    s.hiddenVotes = true;
+    expect(toPublicState(s).settingsLine).toMatch(/manual steps · votes hidden$/);
+  });
+});
+
+// The next step --------------------------------------------------------------
+describe('the next step', () => {
+  it('walks the fixed part of a round', () => {
+    const s = makeGame(6);
+    s.phase = 'REPORT';
+    expect(upcomingStep(s)).toEqual({ next: { kind: 'TALK', round: 1 }, voteThisRound: 'UNKNOWN' });
+    s.phase = 'TALK';
+    expect(upcomingStep(s).next).toEqual({ kind: 'ACT', round: 1 });
+    s.phase = 'ACT';
+    expect(upcomingStep(s).next).toEqual({ kind: 'RESOLVE', round: 1 });
+    s.phase = 'ROLES';
+    s.round = 0;
+    expect(upcomingStep(s).next).toEqual({ kind: 'REPORT', round: 1 });
+  });
+
+  it('knows once the round has resolved whether it ends in a vote', () => {
+    const s = makeGame(6);
+    s.round = 3;
+    s.phase = 'RESOLVE';
+    expect(upcomingStep(s)).toEqual({ next: { kind: 'REPORT', round: 4 }, voteThisRound: 'NO' });
+    s.xrayOnline = true;
+    s.powerCells = 4;
+    expect(upcomingStep(s)).toEqual({ next: { kind: 'VOTE', round: 3 }, voteThisRound: 'YES' });
+  });
+
+  it('ends the game after the last round', () => {
+    const s = makeGame(6);
+    s.round = 10;
+    s.phase = 'RESOLVE';
+    expect(upcomingStep(s).next).toEqual({ kind: 'GAME_OVER', round: 10 });
+  });
+
+  it('follows a vote through its result and a runoff', async () => {
+    const { resolveVote } = await import('../src/index.js');
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.round = 2;
+    s.xrayOnline = true;
+    s.powerCells = 4;
+    s = startVote(s);
+    expect(upcomingStep(s).next).toEqual({ kind: 'VOTE_RESULT', round: 2 });
+
+    const [a, b, c, d] = s.players;
+    s = castBallot(s, a.id, b.id).state;
+    s = castBallot(s, c.id, d.id).state;
+    s = resolveVote(s).state; // tie -> runoff
+    expect(upcomingStep(s).next).toEqual({ kind: 'RUNOFF', round: 2 });
+
+    s = startVote(s, 'RUNOFF', [b.id, d.id]);
+    s = castBallot(s, a.id, b.id).state;
+    s = castBallot(s, c.id, d.id).state;
+    s = resolveVote(s).state; // tied again -> no scan, next round
+    expect(upcomingStep(s).next).toEqual({ kind: 'REPORT', round: 3 });
+  });
+
+  it('is part of the public state', () => {
+    const s = makeGame(6);
+    s.phase = 'TALK';
+    expect(toPublicState(s)).toMatchObject({
+      upcoming: { kind: 'ACT', round: 1 },
+      voteThisRound: 'UNKNOWN',
+    });
   });
 });

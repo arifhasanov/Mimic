@@ -161,4 +161,13 @@ export interface GameState {
   lastReport: RoundReport | null;
   seed: number;
   fastPhases: boolean;
+  /** No timers: the host moves the game on by hand. */
+  manualSteps: boolean;
+  /** Ballots are never revealed — only who was scanned, or that nobody was. */
+  hiddenVotes: boolean;
+  /**
+   * Bumped every time the game moves to a new step. The host's Next press carries the step
+   * it saw, so a double press (or a held Space bar) can never skip a phase.
+   */
+  step: number;
 }

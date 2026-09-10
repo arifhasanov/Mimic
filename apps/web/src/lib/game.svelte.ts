@@ -18,8 +18,15 @@ class GameStore {
   connected = $state(false);
   /** Set only while the ROLES phase is running, then destroyed. */
   roleCard = $state<{ role: 'CREW' | 'MIMIC'; mimicTeammates?: string[] } | null>(null);
+  /** Set when the host ends the game or removes this player; pages send the user to the menu. */
+  closed = $state<null | 'closed' | 'kicked'>(null);
 
   private wired = false;
+  /**
+   * What to do on a reconnect. Replaced by every page that calls wire(), so a tab that has
+   * moved on to a new game never rejoins the old one when its socket drops and comes back.
+   */
+  private reconnect: (() => void) | null = null;
 
   /**
    * Split out from the socket handler so it can be tested without a server. The role card
@@ -32,20 +39,20 @@ class GameStore {
     if (payload.phase !== 'ACT') this.actOptions = null;
   }
 
+  /** Pages call this on mount, then attach themselves if the socket is already up. */
   wire(onReconnect: () => void) {
-    if (this.wired) return;
-    this.wired = true;
+    this.reconnect = onReconnect;
     const s = getSocket();
-
     // Navigating from the join screen reuses a socket that is already connected, so the
     // 'connect' event has been and gone. Seed from the live flag or the UI sticks on
     // "Connecting…" forever.
     this.connected = s.connected;
-    if (s.connected) onReconnect();
+    if (this.wired) return;
+    this.wired = true;
 
     s.on('connect', () => {
       this.connected = true;
-      onReconnect();
+      this.reconnect?.();
     });
     s.on('disconnect', () => {
       this.connected = false;
@@ -57,6 +64,12 @@ class GameStore {
     s.on('actOptions', (payload: ActOptions) => {
       this.actOptions = payload;
     });
+    s.on('gameClosed', () => {
+      this.closed = 'closed';
+    });
+    s.on('kicked', () => {
+      this.closed = 'kicked';
+    });
     s.on('spectatorState', (payload: SpectatorState) => {
       this.spectator = payload;
     });
@@ -67,6 +80,7 @@ class GameStore {
     this.actOptions = null;
     this.spectator = null;
     this.roleCard = null;
+    this.closed = null;
   }
 }
 

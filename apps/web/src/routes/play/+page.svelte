@@ -32,6 +32,18 @@
   ];
   const motto = MOTTOS[Math.floor(Math.random() * MOTTOS.length)];
 
+  /** Back to the join screen, forgetting this game. */
+  function toMenu(notice?: string) {
+    clearSession();
+    game.reset();
+    goto(notice ? '/?notice=' + notice : '/');
+  }
+
+  // The host ended the game or removed this player.
+  $effect(() => {
+    if (game.closed) toMenu(game.closed);
+  });
+
   onMount(() => {
     if (!session) {
       goto('/');
@@ -105,7 +117,7 @@
   {:else if gameState.phase === 'LOBBY'}
     <div class="pad">
       <p class="say">You're in.</p>
-      <p class="sub">Look at the TV.</p>
+      <p class="sub">Look at the monitor.</p>
       <p class="tag mono">{me.name} · {gameState.code}</p>
     </div>
   {:else if gameState.phase === 'ROLES'}
@@ -143,7 +155,7 @@
   {:else if gameState.phase === 'ACT'}
     <div class="pad">
       <p class="say">Locked in.</p>
-      <p class="sub">Look at the TV.</p>
+      <p class="sub">Look at the monitor.</p>
       <button class="change" onclick={() => (locked = false)}>CHANGE</button>
     </div>
   {:else if gameState.phase === 'VOTE' && !voted && !gameState.vote?.result}
@@ -153,16 +165,17 @@
   {:else if gameState.phase === 'VOTE'}
     <div class="pad">
       <p class="say">Locked in.</p>
-      <p class="sub">Look at the TV.</p>
+      <p class="sub">Look at the monitor.</p>
     </div>
   {:else if gameState.phase === 'GAME_OVER'}
     <div class="pad">
       <p class="say">Game over.</p>
-      <p class="sub">Look at the TV.</p>
+      <p class="sub">Look at the monitor.</p>
+      <button class="change" onclick={() => toMenu()}>MAIN MENU</button>
     </div>
   {:else}
     <div class="pad">
-      <p class="say">Look at the TV.</p>
+      <p class="say">Look at the monitor.</p>
     </div>
   {/if}
 </main>
@@ -170,7 +183,14 @@
 <style>
   /* Portrait only. Everything the thumb touches lives in the lower half of the screen so
      the phone can be held low, in the lap, tilted toward the body. */
+  /* Grey on black, deliberately: easy to read at thirty centimetres, hard to read from the
+     next seat (phone spec section 7). The palette is redefined for this page only, so every
+     component on the phone — tiles, role card, spectator list — picks it up. */
   main {
+    --ink: #a7b1bb;
+    --ink-dim: #8a95a0;
+    --ink-faint: #69737e;
+    color: var(--ink);
     height: 100dvh;
     max-width: 30rem;
     margin: 0 auto;

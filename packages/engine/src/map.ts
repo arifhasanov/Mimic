@@ -1,6 +1,6 @@
 import type { RoomId } from './types.js';
 
-/** Fixed map order, used by the TV and by the phone's room screen. */
+/** Fixed map order, used by the monitor and by the phone's room screen. */
 export const ROOMS: RoomId[] = ['reactor', 'cargo', 'steering', 'oxygen', 'medbay'];
 
 export const ROOM_NAMES: Record<RoomId, string> = {

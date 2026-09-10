@@ -46,6 +46,9 @@ export function createGame(code: string, seed: number): GameState {
     lastReport: null,
     seed,
     fastPhases: false,
+    manualSteps: false,
+    hiddenVotes: false,
+    step: 0,
   };
 }
 
@@ -81,7 +84,7 @@ export function startGame(state: GameState, rng: Rng): GameState {
     {
       round: 0,
       kind: 'SETTINGS',
-      text: settingsLine(s.config, s.settings, s.players.length),
+      text: settingsLine(s.config, s.settings, s.players.length, s),
     },
   ];
   return s;
@@ -430,6 +433,66 @@ export function resolveVote(state: GameState): { state: GameState; outcome: Vote
 
   s.vote = { ...v, result: outcome };
   return { state: s, outcome };
+}
+
+// ---------------------------------------------------------------------------
+// The next step — for the monitor's header.
+// ---------------------------------------------------------------------------
+
+export type UpcomingKind =
+  | 'REPORT'
+  | 'TALK'
+  | 'ACT'
+  | 'RESOLVE'
+  | 'VOTE'
+  | 'VOTE_RESULT'
+  | 'RUNOFF'
+  | 'GAME_OVER';
+
+export interface Upcoming {
+  kind: UpcomingKind;
+  round: number;
+}
+
+/**
+ * What the game does next, and whether this round ends in a vote.
+ *
+ * Computed here rather than on the monitor because it is game logic: after Resolve it
+ * depends on the vote condition, and after a vote on its result. It reads public state only
+ * (the X-ray, the cell pool, the head count, the vote outcome), so it is safe to broadcast.
+ * Before Resolve nobody can know whether the round will end in a vote — a Steal could still
+ * drain the cells — so it is honestly reported as UNKNOWN.
+ */
+export function upcomingStep(state: GameState): {
+  next: Upcoming | null;
+  voteThisRound: 'YES' | 'NO' | 'UNKNOWN';
+} {
+  const r = state.round;
+  const afterRound = (): Upcoming =>
+    r >= state.config.rounds ? { kind: 'GAME_OVER', round: r } : { kind: 'REPORT', round: r + 1 };
+
+  switch (state.phase) {
+    case 'ROLES':
+      return { next: { kind: 'REPORT', round: 1 }, voteThisRound: 'UNKNOWN' };
+    case 'REPORT':
+      return { next: { kind: 'TALK', round: r }, voteThisRound: 'UNKNOWN' };
+    case 'TALK':
+      return { next: { kind: 'ACT', round: r }, voteThisRound: 'UNKNOWN' };
+    case 'ACT':
+      return { next: { kind: 'RESOLVE', round: r }, voteThisRound: 'UNKNOWN' };
+    case 'RESOLVE':
+      return shouldVote(state)
+        ? { next: { kind: 'VOTE', round: r }, voteThisRound: 'YES' }
+        : { next: afterRound(), voteThisRound: 'NO' };
+    case 'VOTE': {
+      const result = state.vote?.result;
+      if (!result) return { next: { kind: 'VOTE_RESULT', round: r }, voteThisRound: 'YES' };
+      if (result.kind === 'RUNOFF') return { next: { kind: 'RUNOFF', round: r }, voteThisRound: 'YES' };
+      return { next: afterRound(), voteThisRound: 'YES' };
+    }
+    default:
+      return { next: null, voteThisRound: 'UNKNOWN' };
+  }
 }
 
 /** After the last round completes with an alien alive, the ship reaches the relay. */

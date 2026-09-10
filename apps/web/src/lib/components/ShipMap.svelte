@@ -58,7 +58,7 @@
       .toUpperCase();
 </script>
 
-<div class="map" style="aspect-ratio: {shipMap.aspect}">
+<div class="map" style="--aspect: {shipMap.aspect}">
   <img src={shipMap.image} alt="" class="art" />
 
   {#if shipMap.crossPipe.draw}
@@ -121,12 +121,13 @@
 </div>
 
 <style>
+  /* Contain-fit: as wide as the box allows, unless that would make it taller than the box.
+     Container units read the parent's size, so this holds on any screen shape — the ship
+     can never spill onto the status strip below it. The parent sets container-type. */
   .map {
     position: relative;
-    width: 100%;
-    max-height: 100%;
-    margin: 0 auto;
-    justify-self: center;
+    aspect-ratio: var(--aspect);
+    width: min(100cqw, calc(100cqh * var(--aspect)));
   }
 
   .art {

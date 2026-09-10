@@ -7,7 +7,7 @@
   const nameOf = (id: string) =>
     id === 'SKIP' ? 'Skip' : (gameState.players.find((p) => p.id === id)?.name ?? '?');
 
-  /** Grouped by target, so the TV reads "who voted for whom" at a glance. */
+  /** Grouped by target, so the monitor reads "who voted for whom" at a glance. */
   const groups = $derived.by(() => {
     if (!vote || !vote.ballots.length) return [];
     const map = new Map<string, string[]>();
@@ -40,13 +40,20 @@
       and a machine that works.
     </p>
   {:else if !vote.result}
-    <p class="idle">Ballots are secret until the vote closes. Decide out loud.</p>
+    <p class="idle">
+      {gameState.hiddenVotes
+        ? 'Ballots are secret and stay secret. Only the result is shown.'
+        : 'Ballots are secret until the vote closes. Decide out loud.'}
+    </p>
     <div class="dots">
       {#each gameState.players.filter((p) => p.alive) as p (p.id)}
         <span class="dot" class:in={vote.voted.includes(p.id)}>{p.name}</span>
       {/each}
     </div>
   {:else}
+    {#if gameState.hiddenVotes}
+      <p class="idle">Votes are hidden in this game.</p>
+    {/if}
     <div class="tally">
       {#each groups as g (g.choice)}
         <div class="row" class:winner={vote.result?.kind === 'SCAN' && vote.result.playerId === g.choice}>

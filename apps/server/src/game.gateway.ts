@@ -33,6 +33,8 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
         // Private payloads go to one socket id, never to a room.
         if (id) server.to(id).emit(event, payload);
       },
+      evict: (code, socketId) => server.in(socketId).socketsLeave(code),
+      closeRoom: (code) => server.in(code).socketsLeave(code),
     });
   }
 
@@ -62,8 +64,27 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
         : (Math.max(-2, Math.min(2, Math.round(Number(body.balance)))) as Balance);
     const custom =
       body?.custom === undefined ? undefined : (body.custom as Partial<CustomSettings> | null);
-    const fast = typeof body?.fastPhases === 'boolean' ? body.fastPhases : undefined;
-    const res = this.games.setSettings(code, hostToken, balance, custom, fast);
+    const flag = (v: unknown) => (typeof v === 'boolean' ? v : undefined);
+    const res = this.games.setSettings(code, hostToken, {
+      balance,
+      custom,
+      fastPhases: flag(body?.fastPhases),
+      manualSteps: flag(body?.manualSteps),
+      hiddenVotes: flag(body?.hiddenVotes),
+    });
+    return res.ok ? { ok: true } : { ok: false, error: res.error ?? 'Rejected.' };
+  }
+
+  @SubscribeMessage('hostNext')
+  hostNext(@MessageBody() body: any): Ack {
+    const step = Number(body?.step);
+    const res = this.games.next(str(body?.code, 8).toUpperCase(), str(body?.hostToken, 64), step);
+    return res.ok ? { ok: true } : { ok: false, error: res.error ?? 'Rejected.' };
+  }
+
+  @SubscribeMessage('hostQuit')
+  hostQuit(@MessageBody() body: any): Ack {
+    const res = this.games.quit(str(body?.code, 8).toUpperCase(), str(body?.hostToken, 64));
     return res.ok ? { ok: true } : { ok: false, error: res.error ?? 'Rejected.' };
   }
 
@@ -81,11 +102,12 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
 
   @SubscribeMessage('hostKick')
   hostKick(@MessageBody() body: any): Ack {
-    const code = str(body?.code, 8).toUpperCase();
-    const g = this.games.get(code);
-    if (!g || g.hostToken !== str(body?.hostToken, 64)) return { ok: false, error: 'Not the host.' };
-    const ok = this.games.removePlayer(code, str(body?.playerId, 64));
-    return ok ? { ok: true } : { ok: false, error: 'Could not remove that player.' };
+    const res = this.games.kick(
+      str(body?.code, 8).toUpperCase(),
+      str(body?.hostToken, 64),
+      str(body?.playerId, 64),
+    );
+    return res.ok ? { ok: true } : { ok: false, error: res.error ?? 'Rejected.' };
   }
 
   // -- players -------------------------------------------------------------
@@ -121,7 +143,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
 
   /**
    * Attach a screen to a game without any host powers. PublicState is safe for everyone by
-   * construction, so a TV that has lost its host token (or a second screen in another room)
+   * construction, so a monitor that has lost its host token (or a second screen in another room)
    * can still show the game. It cannot start it or change settings.
    */
   @SubscribeMessage('watch')

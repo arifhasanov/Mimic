@@ -126,8 +126,13 @@ const BALANCE_LABELS: Record<Balance, string> = {
   [2]: 'Mimic++',
 };
 
-/** The plain-words settings line shown on the TV lobby and repeated on game over. */
-export function settingsLine(config: ResolvedConfig, settings: SettingsInput, playerCount: number): string {
+/** The plain-words settings line shown on the monitor's lobby and repeated on game over. */
+export function settingsLine(
+  config: ResolvedConfig,
+  settings: SettingsInput,
+  playerCount: number,
+  modes: { manualSteps?: boolean; hiddenVotes?: boolean } = {},
+): string {
   const mode = settings.custom ? 'Custom' : BALANCE_LABELS[settings.balance];
   return [
     `${playerCount} players`,
@@ -136,6 +141,8 @@ export function settingsLine(config: ResolvedConfig, settings: SettingsInput, pl
     `${config.rounds} rounds`,
     `scans cost ${config.scanCostCells} cells`,
     `Reactor makes up to ${config.reactorCapCells} cells a round`,
+    ...(modes.manualSteps ? ['manual steps'] : []),
+    ...(modes.hiddenVotes ? ['votes hidden'] : []),
   ].join(' · ');
 }
 

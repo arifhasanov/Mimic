@@ -1,9 +1,10 @@
+import { upcomingStep, type Upcoming } from './engine.js';
 import { ROOMS } from './map.js';
 import { settingsLine } from './settings.js';
 import type { Ballot, GameState, LogEntry, Phase, ResolvedConfig, RoomId, RoomReport, Role } from './types.js';
 
 /**
- * Everything the TV and every phone may see.
+ * Everything the monitor and every phone may see.
  *
  * Deliberately built by an explicit whitelist rather than by deleting keys: a new field
  * on GameState must be opted in here, so it can never leak by accident. Note that no key
@@ -69,10 +70,21 @@ export interface PublicState {
   lockedIn: number;
   livingCount: number;
   fastPhases: boolean;
+  manualSteps: boolean;
+  hiddenVotes: boolean;
+  step: number;
+  /** What the game does next — shown on the monitor so the table knows what is coming. */
+  upcoming: Upcoming | null;
+  /** Whether this round ends in a vote. Only knowable once the round has resolved. */
+  voteThisRound: 'YES' | 'NO' | 'UNKNOWN';
 }
 
 export function toPublicState(state: GameState, lockedIn = 0): PublicState {
   const over = state.phase === 'GAME_OVER';
+  // With hidden votes the ballots themselves never leave the server — not in the live vote,
+  // not in the log, not at game over. Only the outcome does.
+  const hide = state.hiddenVotes;
+  const { next, voteThisRound } = upcomingStep(state);
   return {
     code: state.code,
     phase: state.phase,
@@ -97,13 +109,17 @@ export function toPublicState(state: GameState, lockedIn = 0): PublicState {
     powerCells: state.powerCells,
     repairProgress: state.repairProgress,
     xrayOnline: state.xrayOnline,
-    log: state.log.map((e) => ({ ...e })),
+    log: state.log.map((e) => {
+      const entry = { ...e };
+      if (hide) delete entry.ballots;
+      return entry;
+    }),
     winner: state.winner,
     winReason: state.winReason,
     config: { ...state.config, phaseSeconds: { ...state.config.phaseSeconds } },
     balance: state.settings.balance,
     isCustom: !!state.settings.custom,
-    settingsLine: settingsLine(state.config, state.settings, state.players.length),
+    settingsLine: settingsLine(state.config, state.settings, state.players.length, state),
     lastReport: state.lastReport
       ? {
           round: state.lastReport.round,
@@ -119,7 +135,7 @@ export function toPublicState(state: GameState, lockedIn = 0): PublicState {
           stage: state.vote.stage,
           candidates: state.vote.candidates.slice(),
           allowSkip: state.vote.allowSkip,
-          ballots: state.vote.result ? state.vote.ballots.map((b) => ({ ...b })) : [],
+          ballots: state.vote.result && !hide ? state.vote.ballots.map((b) => ({ ...b })) : [],
           voted: state.vote.ballots.map((b) => b.voterId),
           result:
             state.vote.result === null
@@ -136,6 +152,11 @@ export function toPublicState(state: GameState, lockedIn = 0): PublicState {
     lockedIn,
     livingCount: state.players.filter((p) => p.alive).length,
     fastPhases: state.fastPhases,
+    manualSteps: state.manualSteps,
+    hiddenVotes: state.hiddenVotes,
+    step: state.step,
+    upcoming: next,
+    voteThisRound,
   };
 }
 

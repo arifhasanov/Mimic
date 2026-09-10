@@ -2,7 +2,7 @@
   import type { PublicState } from '$lib/types';
 
   /**
-   * Two taps. Ballots are public on the TV, so nothing here needs shuffling — but the tap
+   * Two taps. Ballots are public on the monitor, so nothing here needs shuffling — but the tap
    * guard and the fade stay, so the rhythm of the app never changes between phases.
    */
   let {

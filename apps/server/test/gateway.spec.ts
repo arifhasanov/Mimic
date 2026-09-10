@@ -211,4 +211,83 @@ describe('GameGateway', () => {
     expect(over.allRoles).toHaveLength(8);
     expect(over.allRoles.filter((r: any) => r.role === 'MIMIC').length).toBeGreaterThan(0);
   }, 240000);
+
+  it('in manual-steps mode waits for the host, and a stale Next cannot skip a step', async () => {
+    const host = await connect();
+    const { code, hostToken } = await ack(host, 'hostCreate', {});
+    for (let i = 0; i < 3; i++) await ack(host, 'hostAddBot', { code, hostToken });
+    // fastPhases only speeds the bots up here; manual steps overrides every timer.
+    await ack(host, 'hostSetSettings', { code, hostToken, manualSteps: true, fastPhases: true });
+    await ack(host, 'hostStart', { code, hostToken });
+
+    const roles = await until(host, (s) => s.phase === 'ROLES');
+    expect(roles.manualSteps).toBe(true);
+    expect(roles.phaseEndsAt).toBe(0);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(latest.get(host).phase).toBe('ROLES'); // nothing moves on its own
+
+    // Only the host can press Next.
+    expect((await ack(host, 'hostNext', { code, hostToken: 'nope', step: roles.step })).ok).toBe(false);
+    expect((await ack(host, 'hostNext', { code, hostToken, step: roles.step })).ok).toBe(true);
+    const report = await until(host, (s) => s.phase === 'REPORT');
+
+    // The same press arriving twice is stale and does nothing.
+    expect((await ack(host, 'hostNext', { code, hostToken, step: roles.step })).ok).toBe(false);
+    expect(latest.get(host).phase).toBe('REPORT');
+
+    await ack(host, 'hostNext', { code, hostToken, step: report.step });
+    const talk = await until(host, (s) => s.phase === 'TALK');
+    await ack(host, 'hostNext', { code, hostToken, step: talk.step });
+    await until(host, (s) => s.phase === 'ACT');
+    // Act closes by itself once every living player has locked in, even in manual mode.
+    const resolved = await until(host, (s) => s.phase === 'RESOLVE', 15000);
+    expect(resolved.phaseEndsAt).toBe(0); // ...and Resolve then waits for the host again
+  }, 30000);
+
+  it('refuses Next in a timed game', async () => {
+    const host = await connect();
+    const { code, hostToken } = await ack(host, 'hostCreate', {});
+    for (let i = 0; i < 3; i++) await ack(host, 'hostAddBot', { code, hostToken });
+    await ack(host, 'hostStart', { code, hostToken });
+    const roles = await until(host, (s) => s.phase === 'ROLES');
+    expect(roles.phaseEndsAt).toBeGreaterThan(0);
+    expect((await ack(host, 'hostNext', { code, hostToken, step: roles.step })).ok).toBe(false);
+    await ack(host, 'hostQuit', { code, hostToken });
+  });
+
+  it('hostQuit sends every screen back to the menu and forgets the game', async () => {
+    const host = await connect();
+    const { code, hostToken } = await ack(host, 'hostCreate', {});
+    const phone = await connect();
+    const joined = await ack(phone, 'join', { code, name: 'Ann' });
+
+    expect((await ack(phone, 'hostQuit', { code, hostToken: joined.token })).ok).toBe(false);
+    const closed = next(phone, 'gameClosed');
+    expect((await ack(host, 'hostQuit', { code, hostToken })).ok).toBe(true);
+    expect(await closed).toEqual({ reason: 'HOST_QUIT' });
+    // The game is gone: a reconnecting phone is turned away instead of rejoining a ghost.
+    expect((await ack(phone, 'rejoin', { code, token: joined.token })).ok).toBe(false);
+  });
+
+  it('kicking a player tells their phone, and they can join again', async () => {
+    const host = await connect();
+    const { code, hostToken } = await ack(host, 'hostCreate', {});
+    const phone = await connect();
+    const joined = await ack(phone, 'join', { code, name: 'Ann' });
+    await ack(host, 'hostAddBot', { code, hostToken });
+
+    expect((await ack(phone, 'hostKick', { code, hostToken: 'nope', playerId: joined.playerId })).ok).toBe(false);
+    const kicked = next(phone, 'kicked');
+    expect((await ack(host, 'hostKick', { code, hostToken, playerId: joined.playerId })).ok).toBe(true);
+    await kicked;
+    const lobby = await until(host, (s) => s.players.length === 1);
+    expect(lobby.players[0].name).toMatch(/^Bot /);
+
+    // Bots can be removed too.
+    await ack(host, 'hostKick', { code, hostToken, playerId: lobby.players[0].id });
+    await until(host, (s) => s.players.length === 0);
+
+    // No ban: the same phone can walk straight back in under the same name.
+    expect((await ack(phone, 'join', { code, name: 'Ann' })).ok).toBe(true);
+  });
 });

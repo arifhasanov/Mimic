@@ -36,7 +36,13 @@
     return `Estimated crew win chance: ~${row[balance + 2]}%`;
   });
 
-  async function push(patch: { balance?: Balance; custom?: Partial<CustomSettings> | null; fastPhases?: boolean }) {
+  async function push(patch: {
+    balance?: Balance;
+    custom?: Partial<CustomSettings> | null;
+    fastPhases?: boolean;
+    manualSteps?: boolean;
+    hiddenVotes?: boolean;
+  }) {
     busy = true;
     await emitAck('hostSetSettings', { code: gameState.code, hostToken, ...patch });
     busy = false;
@@ -196,15 +202,41 @@
     </div>
   </div>
 
+  <div class="modes">
+    <label class="mode">
+      <input
+        type="checkbox"
+        checked={gameState.manualSteps}
+        onchange={(e) => push({ manualSteps: e.currentTarget.checked })}
+      />
+      <span class="text">
+        <b>Manual steps</b>
+        <i>No timers. You press Next (or Space) when the table is ready to move on.</i>
+      </span>
+    </label>
+    <label class="mode">
+      <input
+        type="checkbox"
+        checked={gameState.hiddenVotes}
+        onchange={(e) => push({ hiddenVotes: e.currentTarget.checked })}
+      />
+      <span class="text">
+        <b>Votes hidden</b>
+        <i>Only the scan result is shown, never who voted for whom.</i>
+      </span>
+    </label>
+  </div>
+
   <div class="toggles">
     <label class="switch">
       <input type="checkbox" checked={custom} onchange={toggleCustom} />
       <span>Custom settings</span>
     </label>
-    <label class="switch">
+    <label class="switch" class:disabled={gameState.manualSteps}>
       <input
         type="checkbox"
         checked={gameState.fastPhases}
+        disabled={gameState.manualSteps}
         onchange={(e) => push({ fastPhases: e.currentTarget.checked })}
       />
       <span>Fast phases <i>(dev)</i></span>
@@ -372,6 +404,57 @@
     font-style: normal;
     color: var(--ink-faint);
     font-size: 0.75rem;
+  }
+
+  .modes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+
+  .mode {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    padding: 0.8rem 0.95rem;
+    background: var(--hull-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    cursor: pointer;
+  }
+
+  .mode:has(input:checked) {
+    border-color: var(--teal);
+  }
+
+  .mode input {
+    margin-top: 0.2rem;
+    width: 1.05rem;
+    height: 1.05rem;
+    accent-color: var(--teal);
+  }
+
+  .mode .text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .mode b {
+    font-size: 0.98rem;
+    font-weight: 600;
+  }
+
+  .mode i {
+    font-style: normal;
+    font-size: 0.8rem;
+    color: var(--ink-faint);
+    line-height: 1.4;
+  }
+
+  .switch.disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   .custom {

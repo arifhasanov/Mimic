@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import RoundSteps from '$lib/components/RoundSteps.svelte';
   import Starfield from '$lib/components/Starfield.svelte';
   import ShipMap from '$lib/components/ShipMap.svelte';
   import StatusStrip from '$lib/components/StatusStrip.svelte';
@@ -16,6 +19,10 @@
   let error = $state('');
   let now = $state(Date.now());
   let busy = $state(false);
+  /** Which game-ending action is waiting for a yes. */
+  let confirmKind = $state<null | 'quit' | 'close'>(null);
+  /** Set when this screen ends the game itself, so its own gameClosed echo is ignored. */
+  let leaving = false;
 
   const gameState = $derived(game.state);
   const remaining = $derived.by(() => {
@@ -27,7 +34,7 @@
     hostToken = loadHost(code) ?? '';
     const socket = getSocket();
     // With a host token this screen can start the game and set the balance; without one it
-    // still attaches and shows everything, so a TV never ends up stuck on a boot screen.
+    // still attaches and shows everything, so a monitor never ends up stuck on a boot screen.
     const attach = () => {
       if (hostToken) socket.emit('rejoin', { code, token: hostToken }, () => {});
       else socket.emit('watch', { code }, () => {});
@@ -36,8 +43,61 @@
     if (socket.connected) attach();
 
     const t = setInterval(() => (now = Date.now()), 250);
-    return () => clearInterval(t);
+
+    // Manual steps: Space or the right arrow is Next, so a host at a keyboard (or with a
+    // presentation clicker) never has to find the button on the screen.
+    const onKey = (e: KeyboardEvent) => {
+      if (!gameState?.manualSteps || !hostToken || confirmKind) return;
+      if (gameState.phase === 'LOBBY' || gameState.phase === 'GAME_OVER') return;
+      // Leave typing and buttons alone. The target is not always an element (a key event
+      // can target the window), so check before calling closest().
+      if (e.target instanceof Element && e.target.closest('input, select, textarea, button')) return;
+      if (e.code === 'Space' || e.key === 'ArrowRight' || e.key === 'PageDown') {
+        e.preventDefault();
+        if (!e.repeat) nextStep();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('keydown', onKey);
+    };
   });
+
+  // The host ended the game from another tab, or this screen is only watching.
+  $effect(() => {
+    if (game.closed && !leaving) {
+      const notice = game.closed;
+      game.reset();
+      goto('/?notice=' + notice);
+    }
+  });
+
+  async function nextStep() {
+    if (!gameState || !hostToken) return;
+    // The step travels with the press, so a double press can never skip a phase.
+    await emitAck('hostNext', { code, hostToken, step: gameState.step });
+  }
+
+  async function kick(playerId: string) {
+    await emitAck('hostKick', { code, hostToken, playerId });
+  }
+
+  /** End the game for everyone (if this is the host) and go back to the menu. */
+  async function leave() {
+    leaving = true;
+    confirmKind = null;
+    if (hostToken) await emitAck('hostQuit', { code, hostToken });
+    game.reset();
+    goto('/');
+  }
+
+  function backFromLobby() {
+    if (!hostToken) return goto('/');
+    if (gameState && gameState.players.length > 0) confirmKind = 'close';
+    else leave();
+  }
 
   $effect(() => {
     if (gameState) noteServerNow(gameState.serverNow);
@@ -57,6 +117,24 @@
   }
 
   const joinUrl = $derived(typeof location !== 'undefined' ? location.origin : '');
+
+  /** The step after this one, in the same plain words the header uses for the current one. */
+  const nextWords = $derived.by(() => {
+    const up = gameState?.upcoming;
+    if (!up) return '';
+    switch (up.kind) {
+      case 'REPORT':
+        return 'Round ' + up.round + ' · Ship report';
+      case 'VOTE_RESULT':
+        return 'Vote result';
+      case 'RUNOFF':
+        return 'Runoff vote';
+      case 'GAME_OVER':
+        return 'Game over';
+      default:
+        return PHASE_WORDS[up.kind];
+    }
+  });
 
   const winnerLine = $derived.by(() => {
     if (!gameState?.winner) return '';
@@ -84,7 +162,10 @@
 {:else if gameState.phase === 'LOBBY'}
   <main class="lobby">
     <section class="invite">
-      <span class="eyebrow">Room code</span>
+      <div class="invite-head">
+        <span class="eyebrow">Room code</span>
+        <button class="back" onclick={backFromLobby}>← Main menu</button>
+      </div>
       <div class="code mono">{gameState.code}</div>
       <p class="url">Everyone joins at <b>{joinUrl}</b></p>
 
@@ -92,7 +173,17 @@
         <span class="eyebrow">{gameState.players.length} aboard</span>
         <ul>
           {#each gameState.players as p (p.id)}
-            <li class:bot={p.name.startsWith('Bot ')}>{p.name}</li>
+            <li class:bot={p.name.startsWith('Bot ')} class:offline={!p.connected}>
+              <span>{p.name}</span>
+              {#if hostToken}
+                <button
+                  class="kick"
+                  title={'Remove ' + p.name}
+                  aria-label={'Remove ' + p.name}
+                  onclick={() => kick(p.id)}>×</button
+                >
+              {/if}
+            </li>
           {:else}
             <li class="empty">Nobody yet.</li>
           {/each}
@@ -129,7 +220,16 @@
     <span class="eyebrow">Round 1 is about to begin</span>
     <h2 class="cond huge">Look at your phone</h2>
     <p class="lead">Hold the card to see who you are. Do not let a neighbour see it.</p>
-    <div class="bigclock mono">{mmss(remaining)}</div>
+    {#if gameState.manualSteps}
+      {#if hostToken}
+        <button class="next big" onclick={nextStep}>NEXT <span>▸</span></button>
+        <p class="keyhint">or press Space</p>
+      {:else}
+        <p class="keyhint">Waiting for the host.</p>
+      {/if}
+    {:else}
+      <div class="bigclock mono">{mmss(remaining)}</div>
+    {/if}
   </main>
 {:else if gameState.phase === 'GAME_OVER'}
   <main class="centred over">
@@ -149,6 +249,7 @@
     </div>
 
     <p class="hint summary">{gameState.settingsLine}</p>
+    <button class="menu" onclick={leave}>← Back to main menu</button>
     <div class="replay">
       <LogPanel {gameState} rounds={12} />
     </div>
@@ -157,8 +258,14 @@
   <main class="game">
     <header class="bar">
       <div class="left">
-        <span class="eyebrow">Round</span>
-        <span class="round cond">{gameState.round} <i>of {gameState.config.rounds}</i></span>
+        {#if hostToken}
+          <button class="quit" title="Quit game" onclick={() => (confirmKind = 'quit')}>✕ Quit</button>
+        {/if}
+        <div class="roundblock">
+          <span class="eyebrow">Round</span>
+          <span class="round cond">{gameState.round} <i>of {gameState.config.rounds}</i></span>
+        </div>
+        <RoundSteps {gameState} />
       </div>
       <div class="middle">
         <h2 class="cond phase">{PHASE_WORDS[gameState.phase]}</h2>
@@ -169,7 +276,24 @@
         {/if}
       </div>
       <div class="right">
-        <span class="clock mono" class:urgent={remaining <= 10}>{mmss(remaining)}</span>
+        {#if nextWords}
+          <div class="upnext">
+            <span class="eyebrow">Next</span>
+            <span class="what cond">{nextWords}</span>
+          </div>
+        {/if}
+        {#if gameState.manualSteps}
+          {#if hostToken}
+            <div class="nextwrap">
+              <button class="next" onclick={nextStep}>NEXT <span>▸</span></button>
+              <span class="keyhint">or Space</span>
+            </div>
+          {:else}
+            <span class="keyhint">The host moves on</span>
+          {/if}
+        {:else}
+          <span class="clock mono" class:urgent={remaining <= 10}>{mmss(remaining)}</span>
+        {/if}
       </div>
     </header>
 
@@ -186,6 +310,17 @@
     <StatusStrip {gameState} />
   </main>
 {/if}
+
+<ConfirmDialog
+  open={confirmKind !== null}
+  title={confirmKind === 'quit' ? 'Quit this game?' : 'Close this room?'}
+  body={confirmKind === 'quit'
+    ? 'The game ends for everyone, nobody wins, and every screen goes back to the main menu.'
+    : 'Everyone who has joined is sent back to the main menu.'}
+  confirmLabel={confirmKind === 'quit' ? 'Quit game' : 'Close room'}
+  onconfirm={leave}
+  oncancel={() => (confirmKind = null)}
+/>
 
 <style>
   main {
@@ -451,7 +586,8 @@
 
   .bar {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 1.25rem;
     align-items: center;
     padding: 0.5rem 1.25rem;
     background: var(--hull);
@@ -461,7 +597,124 @@
 
   .bar .left {
     display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    min-width: 0;
+  }
+
+  .roundblock {
+    display: flex;
     flex-direction: column;
+  }
+
+  .quit {
+    background: transparent;
+    border: 1px solid var(--line-2);
+    border-radius: 9px;
+    padding: 0.45rem 0.85rem;
+    color: var(--ink-faint);
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+  }
+
+  .quit:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .nextwrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.9rem;
+  }
+
+  .next {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem 1.6rem;
+    background: rgba(95, 208, 196, 0.1);
+    border: 1px solid var(--teal);
+    border-radius: 12px;
+    color: var(--teal);
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+  }
+
+  .next span {
+    letter-spacing: 0;
+  }
+
+  .next.big {
+    margin-top: 2.5rem;
+    padding: 1rem 2.6rem;
+    font-size: 2.4rem;
+  }
+
+  .next:focus-visible,
+  .back:focus-visible,
+  .menu:focus-visible,
+  .quit:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 3px;
+  }
+
+  .keyhint {
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+  }
+
+  .invite-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .back,
+  .menu {
+    background: transparent;
+    border: 1px solid var(--line-2);
+    border-radius: 9px;
+    padding: 0.45rem 0.9rem;
+    color: var(--ink-dim);
+    font-size: 0.9rem;
+  }
+
+  .menu {
+    margin-top: 1rem;
+    padding: 0.7rem 1.4rem;
+    font-size: 1rem;
+  }
+
+  .roster li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .roster li.offline {
+    opacity: 0.5;
+  }
+
+  .kick {
+    display: grid;
+    place-items: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    margin-right: -0.35rem;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--line-2);
+    border-radius: 50%;
+    color: var(--ink-faint);
+    font-size: 0.95rem;
+    line-height: 1;
+  }
+
+  .kick:hover {
+    border-color: var(--danger);
+    color: var(--danger);
   }
 
   .round {
@@ -496,7 +749,29 @@
   }
 
   .right {
-    text-align: right;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1.75rem;
+    min-width: 0;
+  }
+
+  .upnext {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    min-width: 0;
+  }
+
+  .upnext .what {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 1.45rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--ink-dim);
   }
 
   .clock {
@@ -516,15 +791,14 @@
     min-height: 0;
   }
 
+  /* container-type: size lets the map fit itself to this box with container units, and
+     stops the map's own size from feeding back into the grid row it sits in. */
   .mapwrap {
     min-height: 0;
+    min-width: 0;
     display: grid;
     place-items: center;
-  }
-
-  .mapwrap :global(.map) {
-    max-width: 100%;
-    max-height: 100%;
+    container-type: size;
   }
 
   aside {

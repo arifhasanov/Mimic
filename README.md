@@ -1,7 +1,7 @@
 # MIMIC — v1.1
 
 A web app for the real-life social deduction party game **MIMIC**. Everyone sits in one room
-around one TV; each player uses their own phone only to make secret choices. There is no
+around one monitor; each player uses their own phone only to make secret choices. There is no
 in-app chat and there must not be one — all discussion happens out loud, face to face.
 
 The rules live in [`mimic-v1-build-spec.md`](mimic-v1-build-spec.md) and
@@ -19,7 +19,7 @@ pnpm start
 ```
 
 That is the whole deployment: one Node process on one port. Open `http://localhost:3000/`
-on the TV, press **Create a game**, and everyone else opens the same URL on their phones
+on the monitor, press **Create a game**, and everyone else opens the same URL on their phones
 and types the four-letter room code. The server prints your LAN address on start-up — that
 is the one to give the table.
 
@@ -67,8 +67,8 @@ Three screens:
 
 | Route | Who | What |
 |---|---|---|
-| `/` | everyone | Room code, name, join. Plus **Create a game** for the TV. |
-| `/host/:code` | the TV | The whole game state, readable from three metres. |
+| `/` | everyone | Room code, name, join. Plus **Create a game** for the monitor. |
+| `/host/:code` | the monitor | The whole game state, readable from three metres. The header shows the round, where the round is (Report · Talk · Act · Resolve · Vote) and what comes next. |
 | `/play` | phones | Four taps to act, two to vote, nothing else. |
 
 ---
@@ -95,7 +95,7 @@ to be opted in there, so it cannot leak by accident — and no key in it is even
 The ship map is `apps/web/static/ship-map.png`, drawn nose-right so the ship flies left to
 right. Room hotspots are percentages of the image in
 [`apps/web/src/lib/shipMap.config.ts`](apps/web/src/lib/shipMap.config.ts), so they survive
-any resolution and any TV.
+any resolution and any screen.
 
 **Swapping the art** means replacing that PNG, setting `aspect`, and re-measuring the five
 boxes. Append `?hotspots` to the host URL — `http://localhost:3000/host/ABCD?hotspots` — to
@@ -125,6 +125,29 @@ was unfair" can see exactly what they played.
 `reactorCapCells` is the strongest dial — one cell swings the crew win rate by roughly
 thirty points. Tune it in single steps and never together with another change.
 
+### Game modes
+
+Two switches in the lobby change how the evening runs. Both are named in the settings line,
+so the table can see what it is playing:
+
+- **Manual steps** takes every timer off. The monitor shows **Next** instead of a countdown
+  (Space, → or a presentation clicker's Page Down work too), so the host moves the table on
+  when the talking is done rather than when a clock says so. Act and Vote still close by
+  themselves once every living player has locked in; press Next to close them early, and
+  anyone who has not locked in gets the default action. A double press can never skip a
+  step — every press carries the step it was made on, and a stale one is ignored. Note that
+  the role reveal then lasts as long as the host wants, rather than the fixed 30 seconds the
+  phone spec asks for so that nobody notices who looked longest.
+- **Votes hidden** shows only a vote's outcome: who was scanned and what they were, or that
+  nobody was. The ballots never leave the server — not in the log, not on the game-over
+  screen, not in the socket traffic. Who *has* voted is still shown while a vote is open,
+  because that is participation, not a result.
+
+The host can also remove players and bots from the lobby with the × on their name; their
+phone goes back to the join screen, and they can rejoin straight away. **Quit game** in the
+header ends the game for everyone after a confirmation, and every screen returns to the
+main menu. The lobby and the game-over screen both have a way back to the menu too.
+
 ### Dev mode
 
 Two things on the host screen exist only so one person can test alone, and are marked
@@ -148,12 +171,12 @@ A whole ten-round game with bots and fast phases takes two or three minutes.
   section 8 exactly, and step 4 (repair) runs after step 3 (sabotage). So breaking a room
   that someone is standing in that round costs the crew one action and nothing more. That is
   the specified order, and it makes "break the room nobody is working" the real skill.
-- **The TV lays out header → map → status vertically, with the vote panel and log in a right
+- **The monitor lays out header → map → status vertically, with the vote panel and log in a right
   rail** rather than stacked below the map as section 15 lists them. At 1920×1080 the
   five-element vertical stack squeezes the map badly, and "one screen, no scrolling,
   readable from three metres" is the requirement the layout has to meet.
 - **`ACT` ends early when every living player has locked in**, following build spec section
   6 rather than the phone spec's "always runs its full length on the phones". Every phone
-  then changes at the same instant, so what leaks is a table-wide fact the TV's locked-in
+  then changes at the same instant, so what leaks is a table-wide fact the monitor's locked-in
   counter already shows, not anything about an individual. Set `phaseSeconds.ACT` in Custom
   if you would rather the phase always run its full length in practice.

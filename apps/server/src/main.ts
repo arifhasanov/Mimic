@@ -40,7 +40,7 @@ async function bootstrap() {
 
   await app.listen(PORT, '0.0.0.0');
   const log = new Logger('MIMIC');
-  log.log(`TV and phones: http://localhost:${PORT}/`);
+  log.log(`Monitor and phones: http://localhost:${PORT}/`);
   const lan = lanAddress();
   if (lan) log.log(`On this network:  http://${lan}:${PORT}/`);
 }

@@ -1,7 +1,19 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import Starfield from '$lib/components/Starfield.svelte';
+  import { game } from '$lib/game.svelte';
   import { emitAck, saveHost, saveSession } from '$lib/socket';
+
+  const NOTICES: Record<string, string> = {
+    closed: 'The host ended the game.',
+    kicked: 'The host removed you from the room. You can join again.',
+  };
+  const notice = $derived(NOTICES[page.url.searchParams.get('notice') ?? ''] ?? '');
+
+  // Whatever game this tab was in before, it is over now.
+  onMount(() => game.reset());
 
   let code = $state('');
   let name = $state('');
@@ -51,6 +63,8 @@
     <p class="tag">Something on this ship is wearing a face that isn't its own.</p>
   </header>
 
+  {#if notice}<p class="notice">{notice}</p>{/if}
+
   <form onsubmit={join}>
     <label>
       <span class="eyebrow">Room code</span>
@@ -77,7 +91,7 @@
   </form>
 
   <div class="host">
-    <p>Running the game on a TV?</p>
+    <p>Running the game on a monitor?</p>
     <button class="ghost" onclick={hostGame} disabled={busy}>Create a game</button>
   </div>
 </main>
@@ -172,6 +186,17 @@
     margin: 0;
     color: var(--danger);
     font-size: 0.88rem;
+  }
+
+  .notice {
+    margin: 0;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    background: var(--hull);
+    color: var(--ink-dim);
+    font-size: 0.9rem;
+    text-align: center;
   }
 
   .host {

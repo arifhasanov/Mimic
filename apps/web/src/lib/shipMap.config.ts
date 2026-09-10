@@ -34,7 +34,7 @@ export const ROOM_NAMES: Record<RoomId, string> = {
   medbay: 'Med bay',
 };
 
-/** Purely descriptive, for the TV card subtitles. Never used to decide anything. */
+/** Purely descriptive, for the monitor's card subtitles. Never used to decide anything. */
 export const ROOM_BLURBS: Record<RoomId, string> = {
   reactor: 'power cells',
   cargo: 'scrap',
