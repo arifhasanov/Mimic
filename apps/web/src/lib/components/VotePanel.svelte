@@ -1,0 +1,186 @@
+<script lang="ts">
+  import type { PublicState } from '$lib/types';
+
+  let { gameState }: { gameState: PublicState } = $props();
+
+  const vote = $derived(gameState.vote);
+  const nameOf = (id: string) =>
+    id === 'SKIP' ? 'Skip' : (gameState.players.find((p) => p.id === id)?.name ?? '?');
+
+  /** Grouped by target, so the TV reads "who voted for whom" at a glance. */
+  const groups = $derived.by(() => {
+    if (!vote || !vote.ballots.length) return [];
+    const map = new Map<string, string[]>();
+    for (const b of vote.ballots) {
+      const list = map.get(b.choice) ?? [];
+      list.push(nameOf(b.voterId));
+      map.set(b.choice, list);
+    }
+    return [...map.entries()]
+      .map(([choice, voters]) => ({ choice, voters }))
+      .sort((a, b) => b.voters.length - a.voters.length);
+  });
+
+  const scanned = $derived(
+    vote?.result?.kind === 'SCAN' ? gameState.players.find((p) => p.id === vote.result!.playerId) : null,
+  );
+</script>
+
+<section class="panel">
+  <header>
+    <span class="eyebrow">{vote?.stage === 'RUNOFF' ? 'Runoff' : 'The vote'}</span>
+    {#if vote && !vote.result}
+      <span class="progress mono">{vote.voted.length} / {gameState.livingCount}</span>
+    {/if}
+  </header>
+
+  {#if !vote}
+    <p class="idle">
+      The X-ray fires when the crew can pay for it — {gameState.config.scanCostCells} power cells
+      and a machine that works.
+    </p>
+  {:else if !vote.result}
+    <p class="idle">Ballots are secret until the vote closes. Decide out loud.</p>
+    <div class="dots">
+      {#each gameState.players.filter((p) => p.alive) as p (p.id)}
+        <span class="dot" class:in={vote.voted.includes(p.id)}>{p.name}</span>
+      {/each}
+    </div>
+  {:else}
+    <div class="tally">
+      {#each groups as g (g.choice)}
+        <div class="row" class:winner={vote.result?.kind === 'SCAN' && vote.result.playerId === g.choice}>
+          <span class="target">{nameOf(g.choice)}</span>
+          <span class="count mono">{g.voters.length}</span>
+          <span class="voters">{g.voters.join(', ')}</span>
+        </div>
+      {/each}
+    </div>
+
+    <div class="outcome" class:mimic={vote.result.kind === 'SCAN' && vote.result.revealed === 'MIMIC'}>
+      {#if vote.result.kind === 'SKIP'}
+        No scan. The cells stay in the pool.
+      {:else if vote.result.kind === 'TIE'}
+        Tied again. No scan, nothing spent.
+      {:else if vote.result.kind === 'RUNOFF'}
+        Tied — runoff between {vote.result.candidates.map(nameOf).join(' and ')}.
+      {:else if vote.result.kind === 'SCAN'}
+        <strong>{scanned?.name}</strong>
+        {#if vote.result.revealed === 'MIMIC'}
+          is a <b>MIMIC</b>. Eliminated.
+        {:else}
+          is <b>CREW</b>. Verified.
+        {/if}
+      {/if}
+    </div>
+  {/if}
+</section>
+
+<style>
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-height: 0;
+    padding: 0.9rem 1rem;
+    background: var(--hull);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .progress {
+    font-size: 1rem;
+    color: var(--ink-dim);
+  }
+
+  .idle {
+    margin: 0;
+    color: var(--ink-faint);
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  .dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+
+  .dot {
+    padding: 0.15rem 0.55rem;
+    border: 1px dashed var(--line-2);
+    border-radius: 999px;
+    font-size: 0.8rem;
+    color: var(--ink-faint);
+  }
+
+  .dot.in {
+    border-style: solid;
+    border-color: var(--teal);
+    color: var(--teal);
+  }
+
+  .tally {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    overflow: hidden;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 7rem 2rem 1fr;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 8px;
+    background: var(--hull-2);
+  }
+
+  .row.winner {
+    outline: 1px solid var(--amber);
+  }
+
+  .target {
+    font-weight: 600;
+  }
+
+  .count {
+    font-size: 1.15rem;
+    font-weight: 700;
+    text-align: right;
+  }
+
+  .voters {
+    font-size: 0.78rem;
+    color: var(--ink-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .outcome {
+    margin-top: auto;
+    padding: 0.6rem 0.75rem;
+    border-radius: 10px;
+    background: rgba(95, 208, 196, 0.08);
+    border: 1px solid rgba(95, 208, 196, 0.3);
+    font-size: 1rem;
+    line-height: 1.4;
+  }
+
+  .outcome.mimic {
+    background: rgba(255, 107, 61, 0.1);
+    border-color: rgba(255, 107, 61, 0.45);
+  }
+
+  .outcome b {
+    letter-spacing: 0.1em;
+  }
+</style>

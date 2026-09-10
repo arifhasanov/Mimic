@@ -1,0 +1,13 @@
+{
+  "name": "mimic",
+  "private": true,
+  "version": "1.1.0",
+  "scripts": {
+    "build": "pnpm --filter @mimic/engine build && pnpm --filter @mimic/web build && pnpm --filter @mimic/server build",
+    "start": "node apps/server/dist/main.js",
+    "dev:server": "pnpm --filter @mimic/server dev",
+    "dev:web": "pnpm --filter @mimic/web dev",
+    "test": "pnpm --filter @mimic/engine test && pnpm --filter @mimic/server test && pnpm --filter @mimic/web test"
+  },
+  "packageManager": "pnpm@11.9.0"
+}

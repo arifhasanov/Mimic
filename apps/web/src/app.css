@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --void: #05070b;
+  --hull: #0d1219;
+  --hull-2: #131a24;
+  --line: #23303d;
+  --line-2: #34445a;
+  --ink: #e8eef4;
+  --ink-dim: #8ea0b2;
+  --ink-faint: #5d6e80;
+  --teal: #5fd0c4;
+  --amber: #f0a03c;
+  --hazard: #f5c518;
+  --danger: #ff6b3d;
+  --verified: #6fd08c;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--void);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+body {
+  background:
+    radial-gradient(1200px 700px at 70% 8%, rgba(95, 208, 196, 0.06), transparent 60%),
+    radial-gradient(900px 600px at 10% 90%, rgba(240, 160, 60, 0.05), transparent 60%),
+    var(--void);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+.mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.cond {
+  font-family: 'Barlow Condensed', 'Inter', sans-serif;
+  letter-spacing: 0.02em;
+}
+
+.eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+}
