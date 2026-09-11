@@ -23,6 +23,8 @@
   const plume =
     Math.max(0, ...thrusters.nozzles.map((n) => flameWidth(n.h) - n.x - thrusters.tuck)) / 100;
 
+  const reactor = shipMap.reactor;
+
   const roomState = $derived(
     Object.fromEntries(gameState.rooms.map((r) => [r.id, r])) as Record<
       RoomId,
@@ -68,23 +70,28 @@
       .toUpperCase();
 </script>
 
-<div
-  class="map"
-  style="--aspect: {shipMap.aspect}; --plume: {plume}; --frames: {thrusters.frames}; --loop: {thrusters.frames /
-    thrusters.fps}s"
->
+<div class="map" style="--aspect: {shipMap.aspect}; --plume: {plume}">
   <!-- Each flame starts on a different frame, so the four never pulse together. -->
   {#each thrusters.nozzles as n, i (i)}
     <div
-      class="flame"
+      class="sprite flame"
       aria-hidden="true"
       style="right: {100 - n.x - thrusters.tuck}%; top: {n.y}%; width: {flameWidth(n.h)}%; height: {n.h *
-        thrusters.span}%; background-image: url({thrusters.image}); animation-delay: {-((i * 5) %
-        thrusters.frames) / thrusters.fps}s"
+        thrusters.span}%; background-image: url({thrusters.image}); --frames: {thrusters.frames}; --loop: {thrusters.frames /
+        thrusters.fps}s; animation-delay: {-((i * 5) % thrusters.frames) / thrusters.fps}s"
     ></div>
   {/each}
 
   <img src={shipMap.image} alt="" class="art" />
+
+  <div
+    class="sprite core"
+    class:broken={roomState.reactor?.broken}
+    aria-hidden="true"
+    style="left: {reactor.glass.x}%; top: {reactor.glass.y}%; width: {reactor.glass.w}%; height: {reactor
+      .glass.h}%; background-image: url({reactor.image}); --frames: {reactor.frames}; --loop: {reactor.frames /
+      reactor.fps}s"
+  ></div>
 
   {#if shipMap.crossPipe.draw}
     <svg class="pipes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -167,24 +174,40 @@
     filter: saturate(0.92) brightness(0.92);
   }
 
-  /* Before the art in the markup, so the art paints over the end of each flame. */
-  .flame {
+  /* A strip of --frames frames side by side, played once every --loop. */
+  .sprite {
     position: absolute;
-    transform: translateY(-50%);
     background-repeat: no-repeat;
     background-size: calc(var(--frames) * 100%) 100%;
-    animation: burn var(--loop) steps(var(--frames)) infinite;
+    animation: play var(--loop) steps(var(--frames)) infinite;
     pointer-events: none;
   }
 
-  @keyframes burn {
+  /* Before the art in the markup, so the art paints over the end of each flame. */
+  .flame {
+    transform: translateY(-50%);
+  }
+
+  /* After the art, over the glass of the core; toned like the art so it matches. A broken
+     Reactor stops on its dimmest frame and fades down, so it reads as down from the sofa. */
+  .core {
+    filter: saturate(0.92) brightness(0.92);
+    transition: filter 0.8s ease;
+  }
+
+  .core.broken {
+    animation: none;
+    filter: saturate(0.5) brightness(0.4);
+  }
+
+  @keyframes play {
     to {
       background-position-x: calc(100% * var(--frames) / (var(--frames) - 1));
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .flame {
+    .sprite {
       animation: none;
     }
   }

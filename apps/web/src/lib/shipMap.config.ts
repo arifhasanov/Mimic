@@ -25,7 +25,7 @@ export const shipMap = {
   /**
    * Engine flames, drawn behind the art so each comes out from under one of its nozzles.
    * Per nozzle, `x` is its exit (left end), `y` its centre and `h` its height, all % of the
-   * art. The frames are cut from `Spaceship thrusters.png` by tools/thruster_strip.py.
+   * art. The frames are cut from `Spaceship thrusters.png` by tools/ship_sprites.py.
    */
   thrusters: {
     image: '/thruster-flame.png',
@@ -47,6 +47,18 @@ export const shipMap = {
       { x: 0.6, y: 61.1, h: 15.6 },
       { x: 2.33, y: 75.7, h: 10 },
     ],
+  },
+  /**
+   * The Reactor's pulsing core, drawn over the glass of the core in the art. `glass` is that
+   * glass as % of the art (left, top, width, height). The frames are cut from
+   * `Spaceship reactor.png` by tools/ship_sprites.py, which also prints `glass`.
+   */
+  reactor: {
+    image: '/reactor-core.png',
+    frames: 18,
+    /** 18 frames at 7.5 a second: one slow pulse every 2.4 s. */
+    fps: 7.5,
+    glass: { x: 19.74, y: 20.62, w: 5.02, h: 11.26 },
   },
 };
 
