@@ -13,6 +13,16 @@
   const debugHotspots =
     typeof location !== 'undefined' && new URLSearchParams(location.search).has('hotspots');
 
+  /**
+   * The engine flames sit left of the art. Each is as long as its nozzle is tall times the
+   * frame's shape, and the map leaves room for the longest so none runs off the screen.
+   */
+  const thrusters = shipMap.thrusters;
+  const flameWidth = (h: number) =>
+    (h * thrusters.span * thrusters.frameAspect * thrusters.stretch) / shipMap.aspect;
+  const plume =
+    Math.max(0, ...thrusters.nozzles.map((n) => flameWidth(n.h) - n.x - thrusters.tuck)) / 100;
+
   const roomState = $derived(
     Object.fromEntries(gameState.rooms.map((r) => [r.id, r])) as Record<
       RoomId,
@@ -58,7 +68,22 @@
       .toUpperCase();
 </script>
 
-<div class="map" style="--aspect: {shipMap.aspect}">
+<div
+  class="map"
+  style="--aspect: {shipMap.aspect}; --plume: {plume}; --frames: {thrusters.frames}; --loop: {thrusters.frames /
+    thrusters.fps}s"
+>
+  <!-- Each flame starts on a different frame, so the four never pulse together. -->
+  {#each thrusters.nozzles as n, i (i)}
+    <div
+      class="flame"
+      aria-hidden="true"
+      style="right: {100 - n.x - thrusters.tuck}%; top: {n.y}%; width: {flameWidth(n.h)}%; height: {n.h *
+        thrusters.span}%; background-image: url({thrusters.image}); animation-delay: {-((i * 5) %
+        thrusters.frames) / thrusters.fps}s"
+    ></div>
+  {/each}
+
   <img src={shipMap.image} alt="" class="art" />
 
   {#if shipMap.crossPipe.draw}
@@ -123,11 +148,14 @@
 <style>
   /* Contain-fit: as wide as the box allows, unless that would make it taller than the box.
      Container units read the parent's size, so this holds on any screen shape — the ship
-     can never spill onto the status strip below it. The parent sets container-type. */
+     can never spill onto the status strip below it. The parent sets container-type.
+     The left margin is the engine flames' room, so they never run off the screen either. */
   .map {
+    --w: min(calc(100cqw / (1 + var(--plume))), calc(100cqh * var(--aspect)));
     position: relative;
     aspect-ratio: var(--aspect);
-    width: min(100cqw, calc(100cqh * var(--aspect)));
+    width: var(--w);
+    margin-left: calc(var(--w) * var(--plume));
   }
 
   .art {
@@ -137,6 +165,28 @@
     height: 100%;
     object-fit: contain;
     filter: saturate(0.92) brightness(0.92);
+  }
+
+  /* Before the art in the markup, so the art paints over the end of each flame. */
+  .flame {
+    position: absolute;
+    transform: translateY(-50%);
+    background-repeat: no-repeat;
+    background-size: calc(var(--frames) * 100%) 100%;
+    animation: burn var(--loop) steps(var(--frames)) infinite;
+    pointer-events: none;
+  }
+
+  @keyframes burn {
+    to {
+      background-position-x: calc(100% * var(--frames) / (var(--frames) - 1));
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .flame {
+      animation: none;
+    }
   }
 
   .pipes {

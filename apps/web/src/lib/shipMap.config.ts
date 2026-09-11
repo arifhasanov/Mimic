@@ -8,7 +8,7 @@ import type { RoomId } from './types';
 export const shipMap = {
   image: '/ship-map.png',
   /** The art's aspect ratio, used to letterbox the map area without distorting it. */
-  aspect: 1659 / 947,
+  aspect: 1672 / 941,
   rooms: {
     reactor: { x: 12.5, y: 10.5, w: 22, h: 38 },
     cargo: { x: 37.5, y: 12, w: 30, h: 38 },
@@ -22,6 +22,32 @@ export const shipMap = {
    * lacks it — set `draw: true` to overlay it.
    */
   crossPipe: { draw: false, from: { x: 34, y: 48 }, to: { x: 44, y: 58 } },
+  /**
+   * Engine flames, drawn behind the art so each comes out from under one of its nozzles.
+   * Per nozzle, `x` is its exit (left end), `y` its centre and `h` its height, all % of the
+   * art. The frames are cut from `Spaceship thrusters.png` by tools/thruster_strip.py.
+   */
+  thrusters: {
+    image: '/thruster-flame.png',
+    frames: 6,
+    fps: 12,
+    /** One frame's width / height, and its height / one nozzle's height; set by the tool. */
+    frameAspect: 282 / 142,
+    span: 1.3,
+    /**
+     * Squashes the flames along their length; 1 keeps the sheet's proportions. Longer flames
+     * need more room left of the ship, and the map shrinks to make it.
+     */
+    stretch: 0.6,
+    /** How far (% of the art's width) each flame tucks in under its nozzle. */
+    tuck: 0.8,
+    nozzles: [
+      { x: 0.66, y: 25.1, h: 15.6 },
+      { x: 0.6, y: 42.9, h: 15.2 },
+      { x: 0.6, y: 61.1, h: 15.6 },
+      { x: 2.33, y: 75.7, h: 10 },
+    ],
+  },
 };
 
 export const ROOM_ORDER: RoomId[] = ['reactor', 'cargo', 'steering', 'oxygen', 'medbay'];
