@@ -10,7 +10,7 @@ import {
 import { Logger } from '@nestjs/common';
 import type { Server, Socket } from 'socket.io';
 import { GamesService } from './games.service';
-import type { Balance, CustomSettings } from '@mimic/engine';
+import type { Balance, BotSkill, CustomSettings } from '@mimic/engine';
 
 type Ack = { ok: true; [k: string]: unknown } | { ok: false; error: string };
 
@@ -65,12 +65,15 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
     const custom =
       body?.custom === undefined ? undefined : (body.custom as Partial<CustomSettings> | null);
     const flag = (v: unknown) => (typeof v === 'boolean' ? v : undefined);
+    const skill = (v: unknown): BotSkill | undefined =>
+      v === 'EASY' || v === 'NORMAL' || v === 'HARD' ? v : undefined;
     const res = this.games.setSettings(code, hostToken, {
       balance,
       custom,
       fastPhases: flag(body?.fastPhases),
       manualSteps: flag(body?.manualSteps),
       hiddenVotes: flag(body?.hiddenVotes),
+      botSkill: skill(body?.botSkill),
     });
     return res.ok ? { ok: true } : { ok: false, error: res.error ?? 'Rejected.' };
   }
@@ -153,6 +156,8 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
     if (!g) return { ok: false, error: 'No game with that code.' };
     client.join(code);
     this.games.broadcastState(g);
+    // A watcher has no token, so the chat so far goes to its socket directly.
+    client.emit('chat', g.chat);
     return { ok: true };
   }
 

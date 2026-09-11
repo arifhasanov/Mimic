@@ -2,7 +2,8 @@
 
 A web app for the real-life social deduction party game **MIMIC**. Everyone sits in one room
 around one monitor; each player uses their own phone only to make secret choices. There is no
-in-app chat and there must not be one — all discussion happens out loud, face to face.
+in-app chat and there must not be one — all discussion happens out loud, face to face. (The
+seated bots do talk, but only on the monitor and only to each other; see *Bots* below.)
 
 The rules live in [`mimic-v1-build-spec.md`](mimic-v1-build-spec.md) and
 [`mimic-v1-phone-spec.md`](mimic-v1-phone-spec.md). The phone spec wins for anything shown
@@ -43,9 +44,12 @@ pnpm test   # engine (Vitest), gateway (Jest), phone components (Vitest)
 
 The engine suite is every acceptance test in build spec section 18 and the settings tests in
 section 20. The gateway suite plays a whole game over real sockets, including the
-hidden-information guarantees from section 16. The web suite covers phone spec tests 15 and
-16 — the action flow renders byte-identical DOM for a crew member and a Mimic, and the
-client holds no role after the reveal.
+hidden-information guarantees from section 16. The bot suite (`apps/server/test/bots.spec.ts`)
+checks the brain in isolation: who a break implicates, what the table plan does before and
+after the X-ray, that a Mimic only submits legal sabotages and never votes for a teammate,
+that the talk budget holds, and that nothing role-shaped ever reaches the chat. The web suite
+covers phone spec tests 15 and 16 — the action flow renders byte-identical DOM for a crew
+member and a Mimic, and the client holds no role after the reveal — plus the tabbed log panel.
 
 The full-game gateway test plays six rounds of real wall-clock time, so `pnpm test` takes
 about two and a half minutes.
@@ -68,7 +72,7 @@ Three screens:
 | Route | Who | What |
 |---|---|---|
 | `/` | everyone | Room code, name, join. Plus **Create a game** for the monitor. |
-| `/host/:code` | the monitor | The whole game state, readable from three metres. The header shows the round, where the round is (Report · Talk · Act · Resolve · Vote) and what comes next. |
+| `/host/:code` | the monitor | The whole game state, readable from three metres. The header shows the round, where the round is (Report · Talk · Act · Resolve · Vote) and what comes next. The right rail holds the vote and the ship log, with a *Crew chat* tab whenever a bot is seated. |
 | `/play` | phones | Four taps to act, two to vote, nothing else. |
 
 ---
@@ -148,18 +152,58 @@ phone goes back to the join screen, and they can rejoin straight away. **Quit ga
 header ends the game for everyone after a confirmation, and every screen returns to the
 main menu. The lobby and the game-over screen both have a way back to the menu too.
 
+### Bots
+
+**+ Bot** in the lobby seats a bot. Bots are a real way to fill a short table: they get
+ordinary names with a small *bot* badge, and they play from the same information a human
+has — the round report, the resource counters, the visible ballots — plus their own role
+card. The code lives in `apps/server/src/bots/`, in three layers that never mix:
+
+- **The brain** (`brain.ts`) reads every report the way a careful player would. A break
+  implicates whoever stood in a room it could be launched from; a shortfall in scrap or
+  cells is a theft by someone in that room; a Med bay round far below the odds is weak
+  evidence against its occupants; a scrap run after the X-ray is online is pointless and
+  noted. Visible ballots count too — shielding a caught Mimic, or pushing a scan onto crew.
+  Every bot keeps its own suspicion scores, trusts some players more than others, and
+  listens to other bots' accusations with that trust applied. The crew plan is a greedy
+  allocation from public state: repairs first (a fuse at one round left beats everything),
+  then scrap and Med bay attempts kept in step, then the Reactor up to its cap. Once the
+  X-ray is up, Cargo and the Med bay are worth nothing, and a bot will stand in Steering or
+  Oxygen instead, because repair resolves after break and a worker in the room undoes a
+  same-round break for free. The Mimic planner scores each sabotage by impact and cover —
+  never a break it would be the only suspect for, a steal timed to cancel a vote, breaks
+  saved for when the fuse can run out — and it works honestly for a round when the heat is
+  on. With one team sabotage per round, the Mimic bot with the least suspicion acts.
+- **The talk planner** (`talk.ts`) decides who speaks. A bot decides its round when Talk
+  opens and then announces exactly that, so what it says is what it does. Each bot gets at
+  most two lines per Talk, the table at most one line per bot plus two, spaced a few
+  seconds apart and finished well before Act so the humans have the last word. A bot with a
+  strong suspect accuses it with the evidence; others agree, disagree when the evidence is
+  spread too thin, or defend themselves. A line or two lands after the report and after a
+  vote result. With *Votes hidden* on, no bot ever says whom it voted for.
+- **The voice** (`voice.ts`) turns those utterances into words in one of four voices
+  (analytical, joker, terse, nervous). It is deliberately role-blind: the utterance type
+  has no field for a role or a real intent, so a Mimic bot's lies are chosen in the planner
+  — it leans on the crew member the table already half-suspects, backs cases against crew,
+  and only defends a teammate when the evidence really is thin — and its wording comes from
+  the same pool as everyone else's.
+
+**Bot skill** in the lobby sets how carefully they play: *Easy* bots are noisy, forgetful
+and wander; *Normal* is the default; *Hard* bots are cold and their Mimics weigh cover more
+heavily.
+
+The chat is monitor-only and read-only. Bots cannot hear the humans, so they reason from
+the ship log and from each other; a table can still argue with a bot out loud, it just
+will not answer. The tab follows the phase — chat while the table talks, acts and votes,
+ship log while a report is up — and a click pins one until the next phase. The game-over
+screen shows the whole conversation with every revealed Mimic's lines marked.
+
 ### Dev mode
 
-Two things on the host screen exist only so one person can test alone, and are marked
-`(dev)`:
-
-- **+ Bot** seats a bot that plays crudely but not randomly: crew bots repair broken rooms
-  and feed the Med bay, Mimic bots sabotage about half the time and never vote out a
-  teammate.
-- **Fast phases** cuts every phase to a few seconds. `ACT` and `VOTE` stay long enough for a
-  human to complete the tap flow, since every screen sits behind a 700 ms guard and a fade.
-
-A whole ten-round game with bots and fast phases takes two or three minutes.
+**Fast phases** cuts every phase to a few seconds. `ACT` and `VOTE` stay long enough for a
+human to complete the tap flow, since every screen sits behind a 700 ms guard and a fade;
+bots say one quick line each. A whole ten-round game with bots and fast phases takes two
+or three minutes.
 
 ---
 

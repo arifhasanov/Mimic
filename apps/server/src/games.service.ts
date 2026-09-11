@@ -19,6 +19,8 @@ import {
   toSpectatorState,
   type ActionButton,
   type Balance,
+  type BotSkill,
+  type ChatMessage,
   type CustomSettings,
   type GameState,
   type Phase,
@@ -27,7 +29,24 @@ import {
   type Rng,
 } from '@mimic/engine';
 import { randomUUID } from 'crypto';
-import { chooseBotAction, chooseBotBallot, BOT_NAMES } from './bots';
+import {
+  BOT_NAMES,
+  PERSONALITIES,
+  absorbRound,
+  absorbVote,
+  chooseAction,
+  chooseBallot,
+  createMind,
+  planReactions,
+  planTalk,
+  planVoteReactions,
+  render,
+  snapshot,
+  type ActSnapshot,
+  type BotMind,
+  type Line,
+  type Pace,
+} from './bots';
 
 /** How the phones and the monitor are told about a phase, without ever driving it. */
 export interface Emitter {
@@ -45,7 +64,13 @@ export interface SettingsPatch {
   fastPhases?: boolean;
   manualSteps?: boolean;
   hiddenVotes?: boolean;
+  botSkill?: BotSkill;
 }
+
+/** Bot chat kept per game; older lines fall off the front. */
+const CHAT_LIMIT = 400;
+/** How long bots keep talking in a manual-steps Talk phase before they let the humans have it. */
+const MANUAL_TALK_WINDOW_MS = 60_000;
 
 interface Runtime {
   state: GameState;
@@ -61,6 +86,14 @@ interface Runtime {
   pendingNext: (() => void) | null;
   runoffCandidates: string[] | null;
   voteRevealed: boolean;
+  /** One mind per seated bot, created at start. */
+  minds: Map<string, BotMind>;
+  /** The state as it was when Act opened, so the report can be read against it. */
+  actSnapshot: ActSnapshot | null;
+  /** The round the X-ray came online, so the next Talk can open with "no more scrap runs". */
+  xrayUpRound: number | null;
+  chat: ChatMessage[];
+  chatSeq: number;
 }
 
 /**
@@ -131,6 +164,11 @@ export class GamesService implements OnModuleDestroy {
       pendingNext: null,
       runoffCandidates: null,
       voteRevealed: false,
+      minds: new Map(),
+      actSnapshot: null,
+      xrayUpRound: null,
+      chat: [],
+      chatSeq: 0,
     });
     this.log.log(`created game ${code}`);
     return { code, hostToken };
@@ -281,6 +319,7 @@ export class GamesService implements OnModuleDestroy {
     if (patch.fastPhases !== undefined) g.state.fastPhases = patch.fastPhases;
     if (patch.manualSteps !== undefined) g.state.manualSteps = patch.manualSteps;
     if (patch.hiddenVotes !== undefined) g.state.hiddenVotes = patch.hiddenVotes;
+    if (patch.botSkill !== undefined) g.state.botSkill = patch.botSkill;
     g.state.config = resolveSettings(g.state.settings, Math.max(1, g.state.players.length));
     this.broadcastState(g);
     return { ok: true };
@@ -348,6 +387,16 @@ export class GamesService implements OnModuleDestroy {
       return { ok: false, error: 'Need at least 3 players (6 is the recommended minimum).' };
 
     g.state = startGame(g.state, g.rng);
+    g.minds.clear();
+    g.chat = [];
+    g.chatSeq = 0;
+    g.xrayUpRound = null;
+    g.state.players
+      .filter((p) => p.isBot)
+      .forEach((p, i) =>
+        g.minds.set(p.id, createMind(p.id, PERSONALITIES[i % PERSONALITIES.length], g.state.botSkill)),
+      );
+    this.broadcastChat(g);
     this.enterRoles(g);
     return { ok: true };
   }
@@ -383,12 +432,27 @@ export class GamesService implements OnModuleDestroy {
     this.schedule(g, this.seconds(g, 'TALK'), () => this.enterAct(g));
     this.broadcastState(g);
     this.emitPhase(g);
+    // Bots decide their round now and announce it, so what they say is what they will do.
+    // They stop well before Act so the humans get the last word.
+    const total = this.seconds(g, 'TALK') * 1000;
+    const windowMs = g.state.manualSteps
+      ? MANUAL_TALK_WINDOW_MS
+      : g.state.fastPhases
+        ? Math.max(1000, total * 0.7)
+        : Math.min(75_000, Math.max(10_000, total - 15_000));
+    this.playLines(
+      g,
+      planTalk([...g.minds.values()], g.state, g.rng, this.pace(g, windowMs), {
+        xrayJustUp: g.xrayUpRound === g.state.round - 1,
+      }),
+    );
   }
 
   private enterAct(g: Runtime) {
     g.state.phase = 'ACT';
     g.state.submissions = {};
     g.lockedInPublic = 0;
+    g.actSnapshot = snapshot(g.state);
     this.schedule(g, this.seconds(g, 'ACT'), () => this.enterResolve(g));
     this.broadcastState(g);
     this.emitPhase(g);
@@ -426,6 +490,17 @@ export class GamesService implements OnModuleDestroy {
     this.emitPhase(g);
     this.emitter?.broadcast(g.state.code, 'resolution', { roundReport: g.state.lastReport });
     this.pushSpectatorStates(g);
+
+    // Every bot reads the report the way a human would, then a couple of them react to it.
+    const before = g.actSnapshot ?? snapshot(g.state);
+    g.actSnapshot = null;
+    if (!before.xrayOnline && g.state.xrayOnline) g.xrayUpRound = g.state.round;
+    for (const mind of g.minds.values()) {
+      mind.plan = null;
+      absorbRound(mind, g.state, before, g.rng);
+    }
+    const windowMs = Math.max(1000, this.seconds(g, 'RESOLVE') * 1000 - 1000);
+    this.playLines(g, planReactions([...g.minds.values()], g.state, before, g.rng, this.pace(g, windowMs)));
   }
 
   private afterResolve(g: Runtime) {
@@ -469,6 +544,9 @@ export class GamesService implements OnModuleDestroy {
           : outcome,
     });
     this.pushSpectatorStates(g);
+
+    for (const mind of g.minds.values()) absorbVote(mind, g.state, g.rng);
+    this.playLines(g, planVoteReactions([...g.minds.values()], g.state, g.rng, this.pace(g, reveal * 1000 - 500)));
   }
 
   private endRound(g: Runtime) {
@@ -549,7 +627,16 @@ export class GamesService implements OnModuleDestroy {
     return { ok: true };
   }
 
-  // -- bots (dev/test mode) ------------------------------------------------
+  // -- bots ----------------------------------------------------------------
+
+  private mindFor(g: Runtime, p: { id: string }): BotMind {
+    let mind = g.minds.get(p.id);
+    if (!mind) {
+      mind = createMind(p.id, PERSONALITIES[g.minds.size % PERSONALITIES.length], g.state.botSkill);
+      g.minds.set(p.id, mind);
+    }
+    return mind;
+  }
 
   private scheduleBotActions(g: Runtime) {
     const total = this.seconds(g, 'ACT') * 1000;
@@ -559,7 +646,7 @@ export class GamesService implements OnModuleDestroy {
       g.botTimers.push(
         setTimeout(() => {
           if (g.state.phase !== 'ACT') return;
-          const choice = chooseBotAction(g.state, p);
+          const choice = chooseAction(this.mindFor(g, p), g.state, g.rng);
           this.submitAction(p.token, choice.room, choice.focus, choice.action);
         }, Math.max(300, delay)),
       );
@@ -574,10 +661,55 @@ export class GamesService implements OnModuleDestroy {
       g.botTimers.push(
         setTimeout(() => {
           if (g.state.phase !== 'VOTE' || g.voteRevealed) return;
-          this.submitBallot(p.token, chooseBotBallot(g.state, p));
+          this.submitBallot(p.token, chooseBallot(this.mindFor(g, p), g.state, g.rng).choice);
         }, Math.max(300, delay)),
       );
     }
+  }
+
+  private pace(g: Runtime, windowMs: number): Pace {
+    return { windowMs, fast: g.state.fastPhases };
+  }
+
+  /**
+   * Play a script back on timers. Each line is rendered when it is spoken, not when it is
+   * planned, and dropped if the phase has moved on: a bot never talks over the next step.
+   */
+  private playLines(g: Runtime, lines: Line[]) {
+    const phase = g.state.phase;
+    const step = g.state.step;
+    for (const line of lines) {
+      g.botTimers.push(
+        setTimeout(() => {
+          if (g.state.phase !== phase || g.state.step !== step) return;
+          const mind = g.minds.get(line.playerId);
+          const speaker = playerById(g.state, line.playerId);
+          if (!mind || !speaker || !speaker.alive) return;
+          const text = render(line.utterance, {
+            personality: mind.personality,
+            rng: g.rng,
+            name: (id) => playerById(g.state, id)?.name ?? 'someone',
+            round: g.state.round,
+          });
+          this.say(g, speaker.id, speaker.name, text);
+        }, line.delayMs),
+      );
+    }
+  }
+
+  private say(g: Runtime, playerId: string, name: string, text: string) {
+    g.chatSeq += 1;
+    g.chat.push({
+      id: g.chatSeq,
+      round: g.state.round,
+      phase: g.state.phase,
+      playerId,
+      name,
+      text,
+      at: Date.now(),
+    });
+    if (g.chat.length > CHAT_LIMIT) g.chat.splice(0, g.chat.length - CHAT_LIMIT);
+    this.broadcastChat(g);
   }
 
   // -- emitting ------------------------------------------------------------
@@ -588,6 +720,10 @@ export class GamesService implements OnModuleDestroy {
 
   broadcastState(g: Runtime) {
     this.emitter?.broadcast(g.state.code, 'state', this.publicState(g));
+  }
+
+  broadcastChat(g: Runtime) {
+    this.emitter?.broadcast(g.state.code, 'chat', g.chat);
   }
 
   private emitPhase(g: Runtime) {
@@ -611,6 +747,7 @@ export class GamesService implements OnModuleDestroy {
     const g = this.get(code);
     if (!g) return;
     this.emitter?.toToken(code, token, 'state', this.publicState(g));
+    this.emitter?.toToken(code, token, 'chat', g.chat);
     const p = g.state.players.find((x) => x.token === token);
     if (!p) return;
     if (g.state.phase === 'ROLES') {

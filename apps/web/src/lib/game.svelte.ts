@@ -1,4 +1,4 @@
-import type { ActOptions, PublicState } from './types';
+import type { ActOptions, ChatMessage, PublicState } from './types';
 import { getSocket } from './socket';
 
 interface SpectatorState {
@@ -15,6 +15,8 @@ class GameStore {
   state = $state<PublicState | null>(null);
   actOptions = $state<ActOptions | null>(null);
   spectator = $state<SpectatorState | null>(null);
+  /** What the bots have said so far. Monitor-only in practice; phones ignore it. */
+  chat = $state<ChatMessage[]>([]);
   connected = $state(false);
   /** Set only while the ROLES phase is running, then destroyed. */
   roleCard = $state<{ role: 'CREW' | 'MIMIC'; mimicTeammates?: string[] } | null>(null);
@@ -73,12 +75,16 @@ class GameStore {
     s.on('spectatorState', (payload: SpectatorState) => {
       this.spectator = payload;
     });
+    s.on('chat', (payload: ChatMessage[]) => {
+      this.chat = Array.isArray(payload) ? payload : [];
+    });
   }
 
   reset() {
     this.state = null;
     this.actOptions = null;
     this.spectator = null;
+    this.chat = [];
     this.roleCard = null;
     this.closed = null;
   }

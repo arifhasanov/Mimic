@@ -25,6 +25,8 @@
   let leaving = false;
 
   const gameState = $derived(game.state);
+  const chat = $derived(game.chat);
+  const hasBots = $derived(!!gameState?.players.some((p) => p.isBot));
   const remaining = $derived.by(() => {
     now; // re-run on every tick
     return gameState ? secondsLeft(gameState.phaseEndsAt) : 0;
@@ -173,8 +175,9 @@
         <span class="eyebrow">{gameState.players.length} aboard</span>
         <ul>
           {#each gameState.players as p (p.id)}
-            <li class:bot={p.name.startsWith('Bot ')} class:offline={!p.connected}>
+            <li class:bot={p.isBot} class:offline={!p.connected}>
               <span>{p.name}</span>
+              {#if p.isBot}<i class="badge">bot</i>{/if}
               {#if hostToken}
                 <button
                   class="kick"
@@ -195,7 +198,7 @@
           <button class="start" onclick={start} disabled={busy || gameState.players.length < 3}>
             START
           </button>
-          <button class="ghost" onclick={addBot} disabled={busy}>+ Bot <i>(dev)</i></button>
+          <button class="ghost" onclick={addBot} disabled={busy}>+ Bot</button>
         </div>
       {:else}
         <p class="warn">Watching only — the host screen has the START button.</p>
@@ -250,8 +253,11 @@
 
     <p class="hint summary">{gameState.settingsLine}</p>
     <button class="menu" onclick={leave}>← Back to main menu</button>
-    <div class="replay">
-      <LogPanel {gameState} rounds={12} />
+    <div class="replay" class:two={hasBots}>
+      <LogPanel {gameState} rounds={12} mode="log" />
+      {#if hasBots}
+        <LogPanel {gameState} {chat} mode="chat" reveal />
+      {/if}
     </div>
   </main>
 {:else}
@@ -303,7 +309,7 @@
       </div>
       <aside>
         <VotePanel {gameState} />
-        <LogPanel {gameState} />
+        <LogPanel {gameState} {chat} />
       </aside>
     </div>
 
@@ -425,6 +431,17 @@
 
   .roster li.bot {
     border-style: dashed;
+    color: var(--ink-dim);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .roster .badge {
+    font-style: normal;
+    font-size: 0.62rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
     color: var(--ink-faint);
   }
 
@@ -465,12 +482,6 @@
     padding: 0.65rem 1rem;
     color: var(--ink-dim);
     font-size: 0.9rem;
-  }
-
-  .ghost i {
-    font-style: normal;
-    color: var(--ink-faint);
-    font-size: 0.75rem;
   }
 
   .hint {
@@ -571,10 +582,16 @@
     margin-top: 1rem;
     min-height: 0;
     display: flex;
+    gap: 1rem;
+  }
+
+  .replay.two {
+    width: min(96rem, 100%);
   }
 
   .replay :global(.panel) {
     flex: 1;
+    min-width: 0;
   }
 
   /* -- in-game ----------------------------------------------------------- */

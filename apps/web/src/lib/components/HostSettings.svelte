@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Balance, CustomSettings, PublicState } from '$lib/types';
+  import type { Balance, BotSkill, CustomSettings, PublicState } from '$lib/types';
   import { emitAck } from '$lib/socket';
 
   let { gameState, hostToken }: { gameState: PublicState; hostToken: string } = $props();
@@ -42,6 +42,7 @@
     fastPhases?: boolean;
     manualSteps?: boolean;
     hiddenVotes?: boolean;
+    botSkill?: BotSkill;
   }) {
     busy = true;
     await emitAck('hostSetSettings', { code: gameState.code, hostToken, ...patch });
@@ -225,6 +226,26 @@
         <i>Only the scan result is shown, never who voted for whom.</i>
       </span>
     </label>
+    <div class="mode skill" class:dim={!gameState.players.some((p) => p.isBot)}>
+      <span class="text">
+        <b>Bot skill</b>
+        <i>How carefully the seated bots read the ship log, and how well the Mimic bots hide.</i>
+      </span>
+      <div class="seg" role="radiogroup" aria-label="Bot skill">
+        {#each ['EASY', 'NORMAL', 'HARD'] as const as level (level)}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={gameState.botSkill === level}
+            class:on={gameState.botSkill === level}
+            disabled={busy}
+            onclick={() => push({ botSkill: level })}
+          >
+            {level.charAt(0) + level.slice(1).toLowerCase()}
+          </button>
+        {/each}
+      </div>
+    </div>
   </div>
 
   <div class="toggles">
@@ -450,6 +471,44 @@
     font-size: 0.8rem;
     color: var(--ink-faint);
     line-height: 1.4;
+  }
+
+  .mode.skill {
+    grid-column: 1 / -1;
+    cursor: default;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .mode.skill.dim b,
+  .mode.skill.dim i {
+    color: var(--ink-faint);
+  }
+
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    overflow: hidden;
+    flex: none;
+  }
+
+  .seg button {
+    background: transparent;
+    border: 0;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+    color: var(--ink-dim);
+  }
+
+  .seg button + button {
+    border-left: 1px solid var(--line-2);
+  }
+
+  .seg button.on {
+    background: var(--hull);
+    color: var(--teal);
   }
 
   .switch.disabled {

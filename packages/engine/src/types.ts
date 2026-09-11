@@ -13,6 +13,22 @@ export type Phase =
 
 export type ActionButton = 'WORK' | 'SABO';
 export type Balance = -2 | -1 | 0 | 1 | 2;
+/** How hard the seated bots play and how carefully they talk. */
+export type BotSkill = 'EASY' | 'NORMAL' | 'HARD';
+
+/**
+ * One line of bot table talk, shown on the monitor. Built on the server from a role-blind
+ * utterance, so the payload carries nothing a phone could not already see.
+ */
+export interface ChatMessage {
+  id: number;
+  round: number;
+  phase: Phase;
+  playerId: string;
+  name: string;
+  text: string;
+  at: number;
+}
 
 export interface Player {
   id: string;
@@ -165,6 +181,8 @@ export interface GameState {
   manualSteps: boolean;
   /** Ballots are never revealed — only who was scanned, or that nobody was. */
   hiddenVotes: boolean;
+  /** How the seated bots play. Lobby-only, like the other modes. */
+  botSkill: BotSkill;
   /**
    * Bumped every time the game moves to a new step. The host's Next press carries the step
    * it saw, so a double press (or a held Space bar) can never skip a phase.

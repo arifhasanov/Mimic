@@ -1,4 +1,4 @@
-import type { Balance, CustomSettings, ResolvedConfig, SettingsInput } from './types.js';
+import type { Balance, BotSkill, CustomSettings, ResolvedConfig, SettingsInput } from './types.js';
 
 /** Stand-in for Infinity so the config survives JSON. Any value >= this reads as "unlimited". */
 export const UNLIMITED = 99;
@@ -131,7 +131,7 @@ export function settingsLine(
   config: ResolvedConfig,
   settings: SettingsInput,
   playerCount: number,
-  modes: { manualSteps?: boolean; hiddenVotes?: boolean } = {},
+  modes: { manualSteps?: boolean; hiddenVotes?: boolean; botSkill?: BotSkill } = {},
 ): string {
   const mode = settings.custom ? 'Custom' : BALANCE_LABELS[settings.balance];
   return [
@@ -143,6 +143,7 @@ export function settingsLine(
     `Reactor makes up to ${config.reactorCapCells} cells a round`,
     ...(modes.manualSteps ? ['manual steps'] : []),
     ...(modes.hiddenVotes ? ['votes hidden'] : []),
+    ...(modes.botSkill && modes.botSkill !== 'NORMAL' ? [modes.botSkill.toLowerCase() + ' bots'] : []),
   ].join(' · ');
 }
 

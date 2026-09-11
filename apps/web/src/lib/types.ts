@@ -12,6 +12,8 @@ export type {
   RoomReport,
   Role,
   Balance,
+  BotSkill,
+  ChatMessage,
   CustomSettings,
 } from '@mimic/engine';
 

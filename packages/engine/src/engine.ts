@@ -48,6 +48,7 @@ export function createGame(code: string, seed: number): GameState {
     fastPhases: false,
     manualSteps: false,
     hiddenVotes: false,
+    botSkill: 'NORMAL',
     step: 0,
   };
 }

@@ -1,7 +1,17 @@
 import { upcomingStep, type Upcoming } from './engine.js';
 import { ROOMS } from './map.js';
 import { settingsLine } from './settings.js';
-import type { Ballot, GameState, LogEntry, Phase, ResolvedConfig, RoomId, RoomReport, Role } from './types.js';
+import type {
+  Ballot,
+  BotSkill,
+  GameState,
+  LogEntry,
+  Phase,
+  ResolvedConfig,
+  RoomId,
+  RoomReport,
+  Role,
+} from './types.js';
 
 /**
  * Everything the monitor and every phone may see.
@@ -17,6 +27,8 @@ export interface PublicPlayer {
   verified: boolean;
   room: RoomId | null;
   connected: boolean;
+  /** A seated bot. Public so the monitor can badge it and show the crew chat tab. */
+  isBot: boolean;
   /** Only ever set once a scan has made it public, or at game over. */
   revealed: Role | null;
 }
@@ -72,6 +84,7 @@ export interface PublicState {
   fastPhases: boolean;
   manualSteps: boolean;
   hiddenVotes: boolean;
+  botSkill: BotSkill;
   step: number;
   /** What the game does next — shown on the monitor so the table knows what is coming. */
   upcoming: Upcoming | null;
@@ -98,6 +111,7 @@ export function toPublicState(state: GameState, lockedIn = 0): PublicState {
       verified: p.verified,
       room: p.room,
       connected: p.connected,
+      isBot: p.isBot,
       revealed: over || !p.alive ? p.role : null,
     })),
     rooms: ROOMS.map((id) => ({
@@ -154,6 +168,7 @@ export function toPublicState(state: GameState, lockedIn = 0): PublicState {
     fastPhases: state.fastPhases,
     manualSteps: state.manualSteps,
     hiddenVotes: state.hiddenVotes,
+    botSkill: state.botSkill,
     step: state.step,
     upcoming: next,
     voteThisRound,

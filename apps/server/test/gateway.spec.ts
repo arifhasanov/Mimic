@@ -202,10 +202,21 @@ describe('GameGateway', () => {
     // An all-bot table: every ACT phase ends as soon as the last bot locks in, so the whole
     // game fits the budget. Six rounds is the shortest the settings allow.
     for (let i = 0; i < 8; i++) expect(await ack(host, 'hostAddBot', { code, hostToken })).toEqual({ ok: true });
-    await ack(host, 'hostSetSettings', { code, hostToken, custom: { rounds: 6 }, fastPhases: true });
+    await ack(host, 'hostSetSettings', { code, hostToken, custom: { rounds: 6 }, fastPhases: true, botSkill: 'HARD' });
+    const lobby = await until(host, (s) => s.botSkill === 'HARD');
+    expect(lobby.players.every((p: any) => p.isBot && !/^Bot /.test(p.name))).toBe(true);
+    let chat: any[] = [];
+    host.on('chat', (payload: any[]) => (chat = payload));
     await ack(host, 'hostStart', { code, hostToken });
 
     const over = await next<any>(host, 'gameOver', 200000);
+    // The bots talked, on the monitor's feed, and nothing in it is shaped like a role.
+    expect(chat.length).toBeGreaterThan(0);
+    for (const m of chat) {
+      expect(Object.keys(m).sort()).toEqual(['at', 'id', 'name', 'phase', 'playerId', 'round', 'text']);
+      expect(typeof m.text).toBe('string');
+    }
+    expect(JSON.stringify(chat)).not.toMatch(/"role"|MIMIC|CREW/);
     expect(['CREW', 'MIMIC']).toContain(over.winner);
     expect(['HULL_BREACH', 'ALL_MIMICS_FOUND', 'REACHED_THE_RELAY']).toContain(over.reason);
     expect(over.allRoles).toHaveLength(8);
@@ -281,7 +292,8 @@ describe('GameGateway', () => {
     expect((await ack(host, 'hostKick', { code, hostToken, playerId: joined.playerId })).ok).toBe(true);
     await kicked;
     const lobby = await until(host, (s) => s.players.length === 1);
-    expect(lobby.players[0].name).toMatch(/^Bot /);
+    expect(lobby.players[0].isBot).toBe(true);
+    expect(lobby.players[0].name).toBe('Bo'); // Ann is taken by the human
 
     // Bots can be removed too.
     await ack(host, 'hostKick', { code, hostToken, playerId: lobby.players[0].id });
