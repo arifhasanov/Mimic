@@ -13,10 +13,12 @@ import {
   resolveSettings,
   resolveVote,
   shouldVote,
+  skipAvailable,
   startGame,
   startVote,
   toPublicState,
   toSpectatorState,
+  voteSkipReason,
   type ActionButton,
   type Balance,
   type BotSkill,
@@ -69,6 +71,14 @@ export interface SettingsPatch {
 
 /** Bot chat kept per game; older lines fall off the front. */
 const CHAT_LIMIT = 400;
+/**
+ * Manual steps: how long a step must have been on screen before Next is accepted. A held
+ * Space bar, a presentation clicker with a sticky button or two quick taps used to advance
+ * twice, which could close a ballot in the same instant it opened.
+ */
+const MANUAL_STEP_GUARD_MS = 1500;
+/** Manual steps: how long Act and the ballot hold Next back while players are still in them. */
+const MANUAL_INPUT_GRACE_MS = 15_000;
 /** How long bots keep talking in a manual-steps Talk phase before they let the humans have it. */
 const MANUAL_TALK_WINDOW_MS = 60_000;
 
@@ -84,6 +94,8 @@ interface Runtime {
   lockedInPublic: number;
   /** In manual-steps mode, what the host's Next press will run. */
   pendingNext: (() => void) | null;
+  /** When the current step went on screen, for the manual-steps Next guard. */
+  stepOpenedAt: number;
   runoffCandidates: string[] | null;
   voteRevealed: boolean;
   /** One mind per seated bot, created at start. */
@@ -162,6 +174,7 @@ export class GamesService implements OnModuleDestroy {
       botTimers: [],
       lockedInPublic: 0,
       pendingNext: null,
+      stepOpenedAt: Date.now(),
       runoffCandidates: null,
       voteRevealed: false,
       minds: new Map(),
@@ -353,6 +366,7 @@ export class GamesService implements OnModuleDestroy {
     g.timer = null;
     g.pendingNext = null;
     g.state.step += 1;
+    g.stepOpenedAt = Date.now();
     if (g.state.manualSteps && !auto) {
       g.state.phaseEndsAt = 0;
       g.pendingNext = next;
@@ -360,6 +374,25 @@ export class GamesService implements OnModuleDestroy {
     }
     g.state.phaseEndsAt = Date.now() + seconds * 1000;
     g.timer = setTimeout(next, seconds * 1000);
+  }
+
+  /**
+   * When the host's Next press starts being accepted for the step now on screen, as a server
+   * timestamp; 0 means straight away. Every step settles for a moment, and Act and an open
+   * ballot hold on until everyone has answered — or until the grace period runs out, so one
+   * player who has put their phone down can never stall the evening.
+   */
+  private stepReadyAt(g: Runtime): number {
+    if (!g.state.manualSteps || !g.pendingNext) return 0;
+    const v = g.state.vote;
+    const ballotOpen = g.state.phase === 'VOTE' && !!v && !v.result;
+    // Only the two steps the players answer are held back. Report, Talk and Resolve are the
+    // host's to run at whatever pace the table wants.
+    if (g.state.phase !== 'ACT' && !ballotOpen) return 0;
+    const waiting = ballotOpen
+      ? v!.voters.some((id) => !v!.ballots.some((b) => b.voterId === id))
+      : livingPlayers(g.state).some((p) => !g.state.submissions[p.id]);
+    return g.stepOpenedAt + (waiting ? MANUAL_INPUT_GRACE_MS : MANUAL_STEP_GUARD_MS);
   }
 
   /**
@@ -372,6 +405,7 @@ export class GamesService implements OnModuleDestroy {
     if (g.hostToken !== hostToken) return { ok: false, error: 'Not the host.' };
     if (!g.state.manualSteps) return { ok: false, error: 'This game runs on timers.' };
     if (step !== g.state.step || !g.pendingNext) return { ok: false, error: 'Already moved on.' };
+    if (Date.now() < this.stepReadyAt(g)) return { ok: false, error: 'Still waiting for players.' };
     const run = g.pendingNext;
     g.pendingNext = null;
     run();
@@ -508,6 +542,11 @@ export class GamesService implements OnModuleDestroy {
       g.runoffCandidates = null;
       this.enterVote(g, 'FIRST');
     } else {
+      // Logged so a "why was there no vote this round?" from the table can be answered.
+      this.log.log(
+        `${g.state.code} round ${g.state.round}: no vote — ${voteSkipReason(g.state)} ` +
+          `(cells ${g.state.powerCells}/${g.state.config.scanCostCells}, xray ${g.state.xrayOnline})`,
+      );
       this.endRound(g);
     }
   }
@@ -515,10 +554,27 @@ export class GamesService implements OnModuleDestroy {
   private enterVote(g: Runtime, stage: 'FIRST' | 'RUNOFF', candidates?: string[]) {
     g.state = startVote(g.state, stage, candidates);
     g.voteRevealed = false;
-    this.schedule(g, this.seconds(g, 'VOTE'), () => this.closeVote(g));
+    const voters = g.state.vote!.voters;
+    // A runoff between everyone still alive leaves nobody to vote; close it as a dead heat
+    // rather than sitting on an empty ballot for a minute.
+    this.schedule(g, voters.length ? this.seconds(g, 'VOTE') : 1, () => this.closeVote(g), !voters.length);
     this.broadcastState(g);
     this.emitPhase(g);
+    this.sendVoteInfo(g);
     this.scheduleBotBallots(g);
+  }
+
+  /** Each phone is told privately whether it still holds its one skip. */
+  private sendVoteInfo(g: Runtime, token?: string) {
+    const v = g.state.vote;
+    if (!v) return;
+    for (const p of livingPlayers(g.state)) {
+      if (token && p.token !== token) continue;
+      this.emitter?.toToken(g.state.code, p.token, 'voteInfo', {
+        canVote: v.voters.includes(p.id),
+        skipAvailable: v.allowSkip && skipAvailable(g.state, p.id),
+      });
+    }
   }
 
   private closeVote(g: Runtime) {
@@ -618,9 +674,10 @@ export class GamesService implements OnModuleDestroy {
     if (!res.ok) return { ok: false, error: res.error };
     g.state = res.state;
 
-    const living = livingPlayers(g.state);
-    const everyoneIn =
-      g.state.vote && living.every((x) => g.state.vote!.ballots.some((b) => b.voterId === x.id));
+    // Runoff candidates are not on the ballot list, so the phase closes as soon as everyone
+    // who *may* vote has — waiting on the two people under the scanner would never end.
+    const v = g.state.vote;
+    const everyoneIn = !!v && v.voters.every((id) => v.ballots.some((b) => b.voterId === id));
     if (everyoneIn) this.schedule(g, 1, () => this.closeVote(g), true);
     this.broadcastState(g);
     if (everyoneIn) this.emitPhase(g);
@@ -655,8 +712,9 @@ export class GamesService implements OnModuleDestroy {
 
   private scheduleBotBallots(g: Runtime) {
     const total = this.seconds(g, 'VOTE') * 1000;
+    const voters = g.state.vote?.voters ?? [];
     for (const p of livingPlayers(g.state)) {
-      if (!p.isBot) continue;
+      if (!p.isBot || !voters.includes(p.id)) continue;
       const delay = Math.min(total - 800, 900 + Math.random() * (total * 0.35));
       g.botTimers.push(
         setTimeout(() => {
@@ -715,7 +773,7 @@ export class GamesService implements OnModuleDestroy {
   // -- emitting ------------------------------------------------------------
 
   publicState(g: Runtime): PublicState {
-    return toPublicState(g.state, g.state.phase === 'ACT' ? g.lockedInPublic : 0);
+    return toPublicState(g.state, g.state.phase === 'ACT' ? g.lockedInPublic : 0, this.stepReadyAt(g));
   }
 
   broadcastState(g: Runtime) {
@@ -759,6 +817,7 @@ export class GamesService implements OnModuleDestroy {
     }
     if (g.state.phase === 'ACT' && p.alive)
       this.emitter?.toToken(code, token, 'actOptions', buildActOptions(g.state));
+    if (g.state.phase === 'VOTE' && p.alive) this.sendVoteInfo(g, token);
     if (!p.alive) this.emitter?.toToken(code, token, 'spectatorState', toSpectatorState(g.state));
   }
 

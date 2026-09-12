@@ -32,6 +32,24 @@
     return gameState ? secondsLeft(gameState.phaseEndsAt) : 0;
   });
 
+  /**
+   * Manual steps: the server holds Next back for a moment on every new step, and until Act
+   * and the ballot have everyone in. Recomputed on the same 250 ms tick as the clock, so no
+   * extra broadcast is needed for the button to come alive.
+   */
+  const stepReady = $derived.by(() => {
+    now; // re-run on every tick
+    return !gameState?.stepReadyAt || secondsLeft(gameState.stepReadyAt) === 0;
+  });
+  const waitingFor = $derived.by(() => {
+    if (!gameState || stepReady) return 0;
+    if (gameState.phase === 'ACT') return Math.max(0, gameState.livingCount - gameState.lockedIn);
+    const v = gameState.vote;
+    if (gameState.phase === 'VOTE' && v && !v.result)
+      return v.voters.filter((id) => !v.voted.includes(id)).length;
+    return 0;
+  });
+
   onMount(() => {
     hostToken = loadHost(code) ?? '';
     const socket = getSocket();
@@ -56,7 +74,7 @@
       if (e.target instanceof Element && e.target.closest('input, select, textarea, button')) return;
       if (e.code === 'Space' || e.key === 'ArrowRight' || e.key === 'PageDown') {
         e.preventDefault();
-        if (!e.repeat) nextStep();
+        if (!e.repeat && stepReady) nextStep();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -225,7 +243,7 @@
     <p class="lead">Hold the card to see who you are. Do not let a neighbour see it.</p>
     {#if gameState.manualSteps}
       {#if hostToken}
-        <button class="next big" onclick={nextStep}>NEXT <span>▸</span></button>
+        <button class="next big" disabled={!stepReady} onclick={nextStep}>NEXT <span>▸</span></button>
         <p class="keyhint">or press Space</p>
       {:else}
         <p class="keyhint">Waiting for the host.</p>
@@ -291,8 +309,10 @@
         {#if gameState.manualSteps}
           {#if hostToken}
             <div class="nextwrap">
-              <button class="next" onclick={nextStep}>NEXT <span>▸</span></button>
-              <span class="keyhint">or Space</span>
+              <button class="next" disabled={!stepReady} onclick={nextStep}>NEXT <span>▸</span></button>
+              <span class="keyhint">
+                {#if stepReady}or Space{:else if waitingFor > 0}waiting for {waitingFor}{:else}…{/if}
+              </span>
             </div>
           {:else}
             <span class="keyhint">The host moves on</span>
@@ -661,6 +681,12 @@
 
   .next span {
     letter-spacing: 0;
+  }
+
+  .next:disabled {
+    background: transparent;
+    border-color: var(--line-2);
+    color: var(--ink-faint);
   }
 
   .next.big {

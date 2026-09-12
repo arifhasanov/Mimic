@@ -1,0 +1,1 @@
+cd ~/Mimic && git pull && pnpm install --frozen-lockfile && pnpm build && pm2 restart mimic

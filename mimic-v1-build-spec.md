@@ -95,7 +95,7 @@ Five rooms:
 | `cargo` | Cargo bay | top middle | +2 scrap per worker | no |
 | `steering` | Steering | top right (bow) | nothing | yes |
 | `oxygen` | Oxygen | bottom left | nothing | yes |
-| `medbay` | Med bay | bottom middle and right | X-ray repair attempt | no |
+| `medbay` | Med bay | bottom middle and right | X-ray repair attempt | only once the X-ray is online, and only from a neighbour (see the smash, below) |
 
 Pipes (undirected, exactly 6). They follow the shared walls in the art, plus the one diagonal pipe that runs from the Reactor down into the Med bay:
 
@@ -169,9 +169,10 @@ The engine derives an internal intent from the submission plus the role it holds
 | Mimic | `SABO` | own room, and it is `reactor` | `STEAL` cells |
 | Mimic | `SABO` | own room, and it is `steering` or `oxygen` | `BREAK` own room |
 | Mimic | `SABO` | a pipe neighbour that is breakable and not already broken | `BREAK` that room |
+| Mimic | `SABO` | the Med bay from a pipe neighbour, once `xrayOnline` is true | `BREAK` the Med bay (the smash) |
 | Mimic | `SABO` | anything else (unbreakable neighbour, already broken, not adjacent) | `WORK` |
 
-Two consequences worth stating out loud: a Mimic can only `STEAL` by focusing their own Cargo bay or Reactor, and the Reactor can only be `BREAK`-ed from a neighbour (Cargo bay, Oxygen or Med bay), never from inside it. A crew `SABO` is harmless and leaves no trace anywhere.
+Three consequences worth stating out loud: a Mimic can only `STEAL` by focusing their own Cargo bay or Reactor; the Reactor can only be `BREAK`-ed from a neighbour (Cargo bay, Oxygen or Med bay), never from inside it; and the Med bay is the mirror image — it can only be smashed from a neighbour (Reactor, Steering or Oxygen), because focusing it from inside is the `CORRUPT`. A crew `SABO` is harmless and leaves no trace anywhere.
 
 Internal intents: `WORK`, `BREAK`, `CORRUPT`, `STEAL`. They exist only inside the engine and the log of the eliminated-player spectator view. The phone never sees them.
 
@@ -190,6 +191,8 @@ Resolved per room, after sabotage.
 ### BREAK
 
 Valid if the target room is breakable, is currently not broken, and is either the Mimic's own room (Steering or Oxygen only) or connected to it by a pipe (see the adjacency table in section 4). Sets `broken = true`, `fuse = 3`.
+
+**The Med bay smash.** The Med bay is not a hull system and never carries a fuse, but a finished X-ray is a machine like any other. Once `xrayOnline` is true, a Mimic standing in the Reactor, Steering or Oxygen may focus the Med bay: `repairProgress` drops by 1 and `xrayOnline` goes back to `false`. The room itself is never marked broken, so nothing can breach the hull from it — but there is no scan until the crew has farmed the scrap and won that repair back. It resolves before the Med bay work in step 6, so a crew that keeps people in the Med bay can win the repair back in the same round.
 
 How the range limit is enforced, in three layers:
 
@@ -266,14 +269,14 @@ The `VOTE` phase runs only if all of these are true at the end of `RESOLVE`:
 
 Otherwise skip straight to the next round.
 
-**First ballot.** Every living player picks one option: any living player, or `SKIP`. Self-voting is allowed (config flag `allowSelfVote`, default `true`). All ballots are revealed on the TV with voter names — who voted for whom is fully public and permanent, and appears in the log.
+**First ballot.** Every living player picks one option: any living player, or `SKIP`. Self-voting is allowed (config flag `allowSelfVote`, default `true`). `SKIP` is worth one ballot per player for the whole game: it is spent when the ballot closes (so changing your mind before then costs nothing), and once spent that player must name someone on every later ballot. The phone is told privately whether its own skip is still there; nobody else's ledger is public. All ballots are revealed on the TV with voter names — who voted for whom is fully public and permanent, and appears in the log.
 
 **Resolving the first ballot.** Find the highest vote count. Collect every option tied at that count.
 - If `SKIP` is in that set → no scan. No power cells are spent.
 - If exactly one player is in that set → that player is scanned.
 - If two or more players are in that set → run a runoff.
 
-**Runoff.** Candidates are only the tied players. All living players vote again. `SKIP` is not available. A candidate may not vote for themselves. If the runoff is also tied → no scan, no power cells spent.
+**Runoff.** Candidates are only the tied players, and they do not vote: the rest of the living crew decides between them. `SKIP` is not available. The phase closes as soon as every eligible voter has answered, so the two under the scanner are never waited for. If the runoff is tied — or nobody was left to vote — → no scan, no power cells spent.
 
 **The scan.** Spend `scanCostCells` power cells. Reveal the scanned player's true role on the TV with a deliberate pause for drama.
 - Alien → `alive = false`, role publicly known forever.
@@ -491,14 +494,14 @@ Write these as automated tests against the game engine with a fixed RNG seed.
 4. A room broken in round 3 and never repaired ends the game with `HULL_BREACH` at the start of round 6.
 5. Four workers in the Med bay with 1 corrupt: exactly 4 scrap are spent and at most 3 progress is possible.
 6. Med bay work with 0 scrap in the pool spends nothing and adds nothing.
-7. Vote tie between two players triggers a runoff; those two players cannot vote for themselves in it; a second tie spends no power cells.
+7. Vote tie between two players triggers a runoff; those two players do not vote in it at all; a second tie spends no power cells.
 8. `SKIP` winning the first ballot spends no power cells and scans nobody.
 9. Scanning the last living alien ends the game immediately with `ALL_MIMICS_FOUND`.
 10. Completing round 10 with an alien alive ends the game with `REACHED_THE_RELAY`.
 11. Snapshot test: a broadcast `PublicState` for a mid-game round contains no `role`, `token`, `intent`, `focus` or `action` key at any depth.
 12. `actOptions` built for a crew member and for a Mimic in the same game state are deep-equal.
 13. A crew submission with `action: 'SABO'` resolves as `WORK` and leaves no trace in the log or state; the state after the round is deep-equal to the same round with `action: 'WORK'`.
-14. A Mimic focusing their own Med bay with `SABO` resolves as `CORRUPT`; own Cargo bay as `STEAL` scrap; own Reactor as `STEAL` cells; own Steering as `BREAK` steering; a breakable unbroken neighbour as `BREAK`; an unbreakable neighbour (Cargo bay or Med bay) as `WORK`; an already-broken neighbour as `WORK`.
+14. A Mimic focusing their own Med bay with `SABO` resolves as `CORRUPT`; own Cargo bay as `STEAL` scrap; own Reactor as `STEAL` cells; own Steering as `BREAK` steering; a breakable unbroken neighbour as `BREAK`; the Med bay from a neighbour as `BREAK` once the X-ray is online and as `WORK` before that; the Cargo bay from a neighbour as `WORK`; an already-broken neighbour as `WORK`.
 15. Rendering the Act flow component to a string with the same `actOptions` and two different private states (crew, Mimic) produces byte-identical output.
 16. The client store after the `ROLES` phase contains no `role` or `mimicTeammates` key.
 16a. `submitAction` with a well-formed but illegal sabotage returns the same acknowledgement as a legal one.

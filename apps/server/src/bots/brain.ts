@@ -80,6 +80,7 @@ export interface ActSnapshot {
   powerCells: number;
   broken: RoomId[];
   xrayOnline: boolean;
+  repairProgress: number;
 }
 
 export function snapshot(state: GameState): ActSnapshot {
@@ -89,6 +90,7 @@ export function snapshot(state: GameState): ActSnapshot {
     powerCells: state.powerCells,
     broken: ROOMS.filter((r) => state.rooms[r].broken),
     xrayOnline: state.xrayOnline,
+    repairProgress: state.repairProgress,
   };
 }
 
@@ -136,6 +138,8 @@ const idByName = (state: GameState) => {
 
 /** Rooms a break of `target` can be launched from. Mirrors isLegalBreak, ignoring "already broken". */
 export function breakers(target: RoomId): RoomId[] {
+  // The Med bay can only be smashed from a neighbour, never from inside it.
+  if (target === 'medbay') return ADJACENCY.medbay.slice();
   if (!BREAKABLE[target]) return [];
   const out = ADJACENCY[target].slice();
   if (target === 'steering' || target === 'oxygen') out.push(target);
@@ -191,6 +195,8 @@ export function readReport(state: GameState, before: ActSnapshot): ReadReport {
     const wasBroken = before.broken.includes(r.room);
     if (r.summary.includes('repaired')) repaired.push(r.room);
     if ((r.broken && !wasBroken) || (!wasBroken && r.summary.includes('repaired'))) breaks.push(r.room);
+    // The Med bay never reads as "broken" — a smash shows up as a lost repair instead.
+    if (r.room === 'medbay' && r.summary.includes('smashed')) breaks.push('medbay');
   }
 
   const stolen: RoomId[] = [];
@@ -464,6 +470,18 @@ function sabotages(mind: BotMind, state: GameState, plan: ReturnType<typeof tabl
     }
   }
 
+  // Once the X-ray works, smashing the Med bay from next door knocks a repair off the track
+  // and takes the scanner offline — worth most when the cell pool is too deep to drain.
+  if (state.xrayOnline) {
+    const cells =
+      state.powerCells + Math.min(counts.reactor * cfg.cellsPerReactorWorker, cfg.reactorCapCells);
+    const base = 12 + (cells - cfg.stealAmount >= cfg.scanCostCells ? 8 : 0);
+    const from = breakers('medbay');
+    const others = from.reduce((n, r) => n + counts[r], 0);
+    for (const room of from)
+      out.push({ room, focus: 'medbay', action: 'SABO', value: base * cover(others) * oddness(room) });
+  }
+
   const remaining = cfg.repairTarget - state.repairProgress;
   const budget = state.scrap + counts.cargo * cfg.scrapPerCargoWorker;
   if (!state.xrayOnline && budget >= cfg.repairCostScrap && counts.medbay > 0) {
@@ -574,6 +592,8 @@ export function chooseBallot(
   const players = byId(state);
   const self = players[mind.id];
   const t = tune(mind.skill);
+  // One skip per player for the whole game, so a bot that has spent it must name someone.
+  const canSkip = vote.allowSkip && !(state.skipsUsed ?? []).includes(mind.id);
   const teammates =
     self?.role === 'MIMIC'
       ? state.players.filter((p) => p.role === 'MIMIC' && p.id !== mind.id).map((p) => p.id)
@@ -596,7 +616,7 @@ export function chooseBallot(
     if (goat && goat !== mind.id) return done(goat, vote.stage === 'RUNOFF' ? 'RUNOFF' : 'EVIDENCE');
     const top = ranked[0];
     if (top && top.score >= 0.3) return done(top.id, vote.stage === 'RUNOFF' ? 'RUNOFF' : 'EVIDENCE');
-    if (vote.allowSkip) return done('SKIP', 'NO_LEAD');
+    if (canSkip) return done('SKIP', 'NO_LEAD');
     return done(anyone(), 'FORCED');
   }
 
@@ -610,7 +630,7 @@ export function chooseBallot(
   if (clear) return done(top.id, 'EVIDENCE');
   const cellsToSpare = state.powerCells >= state.config.scanCostCells * 2;
   if (top && top.score > 0 && cellsToSpare) return done(top.id, 'VERIFY');
-  if (vote.allowSkip) return done('SKIP', cellsToSpare ? 'NO_LEAD' : 'SAVE_CELLS');
+  if (canSkip) return done('SKIP', cellsToSpare ? 'NO_LEAD' : 'SAVE_CELLS');
   return done(top ? top.id : anyone(), top ? 'EVIDENCE' : 'FORCED');
 }
 

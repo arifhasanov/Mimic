@@ -15,6 +15,7 @@ import type {
   SettingsInput,
   Submission,
   VoteOutcome,
+  VoteSkipReason,
 } from './types.js';
 
 export function emptyRooms(): Record<RoomId, RoomState> {
@@ -43,6 +44,7 @@ export function createGame(code: string, seed: number): GameState {
     settings,
     submissions: {},
     vote: null,
+    skipsUsed: [],
     lastReport: null,
     seed,
     fastPhases: false,
@@ -79,6 +81,7 @@ export function startGame(state: GameState, rng: Rng): GameState {
   s.winReason = null;
   s.submissions = {};
   s.vote = null;
+  s.skipsUsed = [];
   s.lastReport = null;
   s.phase = 'ROLES';
   s.log = [
@@ -130,6 +133,11 @@ export function beginRound(state: GameState): GameState {
 
 /** Single source of truth for break legality. Pure, reads public state only. */
 export function isLegalBreak(state: GameState, room: RoomId, target: RoomId): boolean {
+  // The Med bay is not a hull system and never carries a fuse, but once the X-ray works it
+  // can be smashed from a neighbouring room: that knocks one repair off the track. Standing
+  // inside it and pressing SABO is the Corrupt, not a break, so a self-focus never counts.
+  if (target === 'medbay')
+    return state.xrayOnline && room !== 'medbay' && ADJACENCY[room].includes('medbay');
   if (!BREAKABLE[target]) return false;
   if (state.rooms[target].broken) return false;
   if (target === room) return room === 'steering' || room === 'oxygen';
@@ -211,8 +219,18 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
 
   // 3. Apply the chosen sabotage.
   let corruptedAttempts = 0;
+  let medbaySmashed = false;
   for (const sab of chosen) {
-    if (sab.intent === 'BREAK' && sab.target) {
+    if (sab.intent === 'BREAK' && sab.target === 'medbay') {
+      // No fuse and no broken room: the smash costs the crew one X-ray repair, and the
+      // scanner stays dark until they win it back. Re-checked here because with 'each'
+      // two Mimics could both aim at it.
+      if (s.xrayOnline) {
+        s.repairProgress = Math.max(0, s.repairProgress - 1);
+        s.xrayOnline = false;
+        medbaySmashed = true;
+      }
+    } else if (sab.intent === 'BREAK' && sab.target) {
       // Re-check: with 'each', two Mimics could aim at the same room.
       if (BREAKABLE[sab.target] && !s.rooms[sab.target].broken) {
         s.rooms[sab.target].broken = true;
@@ -283,6 +301,7 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
     if (r === 'reactor' && cellsGained > 0)
       bits.push('+' + cellsGained + ' power cell' + (cellsGained === 1 ? '' : 's'));
     if (r === 'cargo' && scrapGained > 0) bits.push('+' + scrapGained + ' scrap');
+    if (r === 'medbay' && medbaySmashed) bits.push('smashed, −1 repair');
     if (r === 'medbay' && attempts > 0)
       bits.push(repairsGained > 0 ? '+' + repairsGained + ' repair' : 'no repair');
     if (room.broken) bits.push('broken, fuse ' + room.fuse);
@@ -314,12 +333,19 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
 // The vote — section 10.
 // ---------------------------------------------------------------------------
 
+/**
+ * Why this round ends without a vote, or null if it runs. Built from public state only, so
+ * the monitor can say which of the three conditions was missing instead of just going quiet.
+ */
+export function voteSkipReason(state: GameState): VoteSkipReason | null {
+  if (!state.xrayOnline) return 'XRAY_OFFLINE';
+  if (state.powerCells < state.config.scanCostCells) return 'NOT_ENOUGH_CELLS';
+  if (livingPlayers(state).length < 2) return 'TOO_FEW_PLAYERS';
+  return null;
+}
+
 export function shouldVote(state: GameState): boolean {
-  return (
-    state.xrayOnline &&
-    state.powerCells >= state.config.scanCostCells &&
-    livingPlayers(state).length >= 2
-  );
+  return voteSkipReason(state) === null;
 }
 
 export function startVote(
@@ -329,14 +355,24 @@ export function startVote(
 ): GameState {
   const s = structuredClone(state);
   s.phase = 'VOTE';
+  const living = livingPlayers(s).map((p) => p.id);
+  const list = candidates ?? living;
+  // A runoff is decided by the rest of the table: the two names on the ballot sit it out.
+  const voters = stage === 'RUNOFF' ? living.filter((id) => !list.includes(id)) : living;
   s.vote = {
     stage,
-    candidates: candidates ?? livingPlayers(s).map((p) => p.id),
+    candidates: list,
+    voters,
     allowSkip: stage === 'FIRST',
     ballots: [],
     result: null,
   };
   return s;
+}
+
+/** Whether this player still has their one skip for the game. */
+export function skipAvailable(state: GameState, playerId: string): boolean {
+  return !(state.skipsUsed ?? []).includes(playerId);
 }
 
 export function castBallot(
@@ -349,8 +385,11 @@ export function castBallot(
   if (!v || s.phase !== 'VOTE') return { ok: false, error: 'no vote running', state };
   const voter = playerById(s, voterId);
   if (!voter || !voter.alive) return { ok: false, error: 'not a living player', state };
+  if (!v.voters.includes(voterId))
+    return { ok: false, error: 'on the ballot — you do not vote', state };
   if (choice === 'SKIP') {
     if (!v.allowSkip) return { ok: false, error: 'skip not available', state };
+    if (!skipAvailable(s, voterId)) return { ok: false, error: 'skip already used', state };
   } else {
     if (!v.candidates.includes(choice)) return { ok: false, error: 'not a candidate', state };
     if (choice === voterId) {
@@ -378,8 +417,17 @@ export function resolveVote(state: GameState): { state: GameState; outcome: Vote
   const v = s.vote!;
   const { top } = tallyBallots(v.ballots);
 
+  // A skip is spent when the ballot closes, not when it is tapped, so changing your mind
+  // before the vote resolves costs nothing.
+  if (!s.skipsUsed) s.skipsUsed = [];
+  for (const b of v.ballots)
+    if (b.choice === 'SKIP' && !s.skipsUsed.includes(b.voterId)) s.skipsUsed.push(b.voterId);
+
   let outcome: VoteOutcome;
-  if (top.length === 0 || top.includes('SKIP')) {
+  if (top.length === 0) {
+    // Nobody voted. On a first ballot that reads as a skip; in a runoff it is a dead heat.
+    outcome = v.stage === 'RUNOFF' ? { kind: 'TIE' } : { kind: 'SKIP' };
+  } else if (top.includes('SKIP')) {
     outcome = { kind: 'SKIP' };
   } else if (top.length === 1) {
     outcome = { kind: 'SCAN', playerId: top[0], role: playerById(s, top[0])!.role };

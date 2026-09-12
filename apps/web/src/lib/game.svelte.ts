@@ -20,6 +20,11 @@ class GameStore {
   connected = $state(false);
   /** Set only while the ROLES phase is running, then destroyed. */
   roleCard = $state<{ role: 'CREW' | 'MIMIC'; mimicTeammates?: string[] } | null>(null);
+  /**
+   * This phone's own ballot rights, sent privately: whether it may vote at all (a runoff
+   * candidate may not) and whether its one skip for the game is still unspent.
+   */
+  voteInfo = $state<{ canVote: boolean; skipAvailable: boolean } | null>(null);
   /** Set when the host ends the game or removes this player; pages send the user to the menu. */
   closed = $state<null | 'closed' | 'kicked'>(null);
 
@@ -39,6 +44,7 @@ class GameStore {
     this.state = payload;
     if (payload.phase !== 'ROLES' && previous !== payload.phase) this.roleCard = null;
     if (payload.phase !== 'ACT') this.actOptions = null;
+    if (payload.phase !== 'VOTE') this.voteInfo = null;
   }
 
   /** Pages call this on mount, then attach themselves if the socket is already up. */
@@ -66,6 +72,9 @@ class GameStore {
     s.on('actOptions', (payload: ActOptions) => {
       this.actOptions = payload;
     });
+    s.on('voteInfo', (payload: { canVote: boolean; skipAvailable: boolean }) => {
+      this.voteInfo = payload;
+    });
     s.on('gameClosed', () => {
       this.closed = 'closed';
     });
@@ -86,6 +95,7 @@ class GameStore {
     this.spectator = null;
     this.chat = [];
     this.roleCard = null;
+    this.voteInfo = null;
     this.closed = null;
   }
 }

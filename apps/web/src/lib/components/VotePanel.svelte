@@ -24,29 +24,50 @@
   const scanned = $derived(
     vote?.result?.kind === 'SCAN' ? gameState.players.find((p) => p.id === vote.result!.playerId) : null,
   );
+
+  /** Who is still expected to vote. In a runoff the two candidates are not among them. */
+  const voters = $derived(
+    vote ? gameState.players.filter((p) => vote.voters.includes(p.id)) : [],
+  );
+
+  /** Plain words for the condition the scan is missing, so "no vote" is never a mystery. */
+  const skipWhy = $derived.by(() => {
+    switch (gameState.voteSkipReason) {
+      case 'XRAY_OFFLINE':
+        return `The X-ray is offline — ${gameState.repairProgress} of ${gameState.config.repairTarget} repairs done.`;
+      case 'NOT_ENOUGH_CELLS':
+        return `A scan costs ${gameState.config.scanCostCells} power cells and the pool holds ${gameState.powerCells}.`;
+      case 'TOO_FEW_PLAYERS':
+        return 'Not enough of the crew left to hold a vote.';
+      default:
+        return 'The X-ray is charged. The crew votes at the end of this round.';
+    }
+  });
 </script>
 
 <section class="panel">
   <header>
     <span class="eyebrow">{vote?.stage === 'RUNOFF' ? 'Runoff' : 'The vote'}</span>
     {#if vote && !vote.result}
-      <span class="progress mono">{vote.voted.length} / {gameState.livingCount}</span>
+      <span class="progress mono">{vote.voted.length} / {voters.length}</span>
     {/if}
   </header>
 
   {#if !vote}
-    <p class="idle">
-      The X-ray fires when the crew can pay for it — {gameState.config.scanCostCells} power cells
-      and a machine that works.
-    </p>
+    <p class="idle">{skipWhy}</p>
   {:else if !vote.result}
     <p class="idle">
-      {gameState.hiddenVotes
-        ? 'Ballots are secret and stay secret. Only the result is shown.'
-        : 'Ballots are secret until the vote closes. Decide out loud.'}
+      {#if vote.stage === 'RUNOFF'}
+        {vote.candidates.map(nameOf).join(' or ')} — the rest of the crew decides. Neither of
+        them votes.
+      {:else if gameState.hiddenVotes}
+        Ballots are secret and stay secret. Only the result is shown.
+      {:else}
+        Ballots are secret until the vote closes. Decide out loud.
+      {/if}
     </p>
     <div class="dots">
-      {#each gameState.players.filter((p) => p.alive) as p (p.id)}
+      {#each voters as p (p.id)}
         <span class="dot" class:in={vote.voted.includes(p.id)}>{p.name}</span>
       {/each}
     </div>

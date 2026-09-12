@@ -144,11 +144,16 @@ export type VoteStage = 'FIRST' | 'RUNOFF';
 export interface VoteState {
   stage: VoteStage;
   candidates: string[];        // player ids eligible to be voted for
+  /** Player ids allowed to cast a ballot. In a runoff the candidates sit it out. */
+  voters: string[];
   allowSkip: boolean;
   ballots: Ballot[];
   /** revealed after the phase resolves */
   result: VoteOutcome | null;
 }
+
+/** Why the round ends without a vote. Public — every part of it is already on the monitor. */
+export type VoteSkipReason = 'XRAY_OFFLINE' | 'NOT_ENOUGH_CELLS' | 'TOO_FEW_PLAYERS';
 
 export type VoteOutcome =
   | { kind: 'SKIP' }
@@ -174,6 +179,8 @@ export interface GameState {
   settings: SettingsInput;
   submissions: Record<string, Submission>;
   vote: VoteState | null;
+  /** Ids of players who have spent their one skip. A skip is worth one ballot per game. */
+  skipsUsed: string[];
   lastReport: RoundReport | null;
   seed: number;
   fastPhases: boolean;

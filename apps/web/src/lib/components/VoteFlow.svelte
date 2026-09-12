@@ -9,11 +9,14 @@
     gameState,
     selfId,
     onsubmit,
+    skipAvailable = true,
     tapGuardMs = 700,
   }: {
     gameState: PublicState;
     selfId: string;
     onsubmit: (choice: string) => void;
+    /** False once this player has spent their one skip for the game. */
+    skipAvailable?: boolean;
     tapGuardMs?: number;
   } = $props();
 
@@ -67,7 +70,9 @@
         <button class="tile" disabled={t.disabled} onclick={() => pick(t.id)}>{t.name}</button>
       {/each}
       {#if vote?.allowSkip}
-        <button class="tile" onclick={() => pick('SKIP')}>SKIP</button>
+        <button class="tile" disabled={!skipAvailable} onclick={() => pick('SKIP')}>
+          {skipAvailable ? 'SKIP' : 'SKIP USED'}
+        </button>
       {/if}
     </div>
   {:else}

@@ -15,20 +15,36 @@ const players = [
   { id: 'c', name: 'Cal', alive: true, verified: false, room: null, connected: true, revealed: null },
 ];
 
-function render(opts: { hiddenVotes: boolean; ballots: any[]; result: any; stage?: string }) {
+function render(opts: {
+  hiddenVotes: boolean;
+  ballots: any[];
+  result: any;
+  stage?: string;
+  vote?: boolean;
+  voteSkipReason?: string | null;
+}) {
   const gameState = {
     players,
     livingCount: 2,
-    config: { scanCostCells: 4 },
+    config: { scanCostCells: 4, repairTarget: 6 },
+    scrap: 0,
+    powerCells: 3,
+    repairProgress: 6,
+    xrayOnline: true,
+    voteSkipReason: opts.voteSkipReason ?? null,
     hiddenVotes: opts.hiddenVotes,
-    vote: {
-      stage: opts.stage ?? 'FIRST',
-      candidates: ['a', 'b', 'c'],
-      allowSkip: true,
-      ballots: opts.ballots,
-      voted: ['a', 'b', 'c'],
-      result: opts.result,
-    },
+    vote:
+      opts.vote === false
+        ? null
+        : {
+            stage: opts.stage ?? 'FIRST',
+            candidates: ['a', 'b', 'c'],
+            voters: opts.stage === 'RUNOFF' ? ['c'] : ['a', 'b', 'c'],
+            allowSkip: true,
+            ballots: opts.ballots,
+            voted: ['a', 'b', 'c'],
+            result: opts.result,
+          },
   };
   const target = document.createElement('div');
   document.body.appendChild(target);
@@ -77,5 +93,25 @@ describe('the vote panel', () => {
   it('tells the table ballots stay secret while a hidden vote is open', () => {
     const el = render({ hiddenVotes: true, ballots: [], result: null });
     expect(el.textContent).toContain('Ballots are secret and stay secret.');
+  });
+
+  it('leaves the two names on a runoff ballot out of the count', () => {
+    const el = render({ hiddenVotes: false, ballots: [], result: null, stage: 'RUNOFF' });
+    expect(el.querySelector('.progress')!.textContent!.trim()).toBe('3 / 1');
+    const idle = el.querySelector('.idle')!.textContent!.replace(/\s+/g, ' ').trim();
+    expect(idle).toBe('Ann or Bo or Cal — the rest of the crew decides. Neither of them votes.');
+    expect([...el.querySelectorAll('.dot')].map((d) => d.textContent)).toEqual(['Cal']);
+  });
+
+  it('says why there is no vote rather than going quiet', () => {
+    const el = render({
+      hiddenVotes: false,
+      ballots: [],
+      result: null,
+      vote: false,
+      voteSkipReason: 'NOT_ENOUGH_CELLS',
+    });
+    const idle = el.querySelector('.idle')!.textContent!.replace(/\s+/g, ' ').trim();
+    expect(idle).toBe('A scan costs 4 power cells and the pool holds 3.');
   });
 });

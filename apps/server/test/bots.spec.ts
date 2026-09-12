@@ -251,11 +251,24 @@ describe('the Mimic', () => {
     const s = game({ mimics: ['Gus'] });
     s.xrayOnline = true;
     s.repairProgress = s.config.repairTarget;
-    s.powerCells = s.config.scanCostCells - 1; // the Reactor will top it up this round
+    // The Reactor tops the pool up to exactly the scan price, so one steal cancels the vote.
+    s.powerCells = 1;
     const ms = minds(s);
     decideRound(ms, s, createRng(3));
     const gus = ms.find((m) => m.id === byName(s, 'Gus').id)!;
     expect(gus.plan).toMatchObject({ room: 'reactor', focus: 'reactor', action: 'SABO' });
+  });
+
+  it('smashes the Med bay from next door when the cell pool is too deep to drain', () => {
+    const s = game({ mimics: ['Gus'] });
+    s.xrayOnline = true;
+    s.repairProgress = s.config.repairTarget;
+    s.powerCells = s.config.scanCostCells + s.config.stealAmount; // a steal cannot stop the scan
+    const ms = minds(s);
+    decideRound(ms, s, createRng(3));
+    const gus = ms.find((m) => m.id === byName(s, 'Gus').id)!;
+    expect(gus.plan).toMatchObject({ focus: 'medbay', action: 'SABO' });
+    expect(gus.plan!.room).not.toBe('medbay'); // never from inside — that is the Corrupt
   });
 });
 

@@ -15,10 +15,12 @@ import {
   resolveRound,
   resolveSettings,
   shouldVote,
+  skipAvailable,
   startGame,
   startVote,
   toPublicState,
   upcomingStep,
+  voteSkipReason,
   type GameState,
   type RoomId,
 } from '../src/index.js';
@@ -355,7 +357,7 @@ describe('14. the full focus matrix for a Mimic', () => {
     expect(d('oxygen', 'reactor')).toMatchObject({ intent: 'BREAK', target: 'reactor' });
     expect(d('cargo', 'steering')).toMatchObject({ intent: 'BREAK', target: 'steering' });
     expect(d('steering', 'cargo').intent).toBe('WORK'); // unbreakable neighbour
-    expect(d('oxygen', 'medbay').intent).toBe('WORK'); // unbreakable neighbour
+    expect(d('oxygen', 'medbay').intent).toBe('WORK'); // nothing to smash until the X-ray works
 
     s.rooms.oxygen.broken = true;
     expect(d('reactor', 'oxygen').intent).toBe('WORK'); // already broken
@@ -512,5 +514,124 @@ describe('the next step', () => {
       upcoming: { kind: 'ACT', round: 1 },
       voteThisRound: 'UNKNOWN',
     });
+  });
+});
+
+// The runoff, the one skip, and the Med bay smash ----------------------------
+describe('the runoff leaves its candidates out', () => {
+  it('a candidate is not a voter, cannot cast a ballot, and is not waited for', async () => {
+    const { resolveVote } = await import('../src/index.js');
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.xrayOnline = true;
+    s.powerCells = 4;
+    const [a, b, c, d, e, f] = s.players;
+
+    s = startVote(s, 'RUNOFF', [b.id, e.id]);
+    expect(s.vote!.candidates.sort()).toEqual([b.id, e.id].sort());
+    expect(s.vote!.voters.sort()).toEqual([a.id, c.id, d.id, f.id].sort());
+
+    // Both names on the ballot sit it out, whoever they would have voted for.
+    expect(castBallot(s, b.id, e.id).ok).toBe(false);
+    expect(castBallot(s, e.id, b.id).ok).toBe(false);
+    expect(castBallot(s, b.id, b.id).ok).toBe(false);
+
+    for (const p of [a, c, d]) s = castBallot(s, p.id, b.id).state;
+    s = castBallot(s, f.id, e.id).state;
+    const { outcome } = resolveVote(s);
+    expect(outcome).toMatchObject({ kind: 'SCAN', playerId: b.id });
+  });
+
+  it('an empty runoff ballot is a dead heat, not a skip', async () => {
+    const { resolveVote } = await import('../src/index.js');
+    let s = makeGame(3, { mimics: ['Ann'] });
+    s.xrayOnline = true;
+    s.powerCells = 4;
+    const [a, b] = s.players;
+    s = startVote(s, 'RUNOFF', [a.id, b.id]);
+    const { state, outcome } = resolveVote(s);
+    expect(outcome.kind).toBe('TIE');
+    expect(state.powerCells).toBe(4);
+  });
+});
+
+describe('one skip per player per game', () => {
+  it('spends the skip when the ballot closes, and refuses a second one', async () => {
+    const { resolveVote } = await import('../src/index.js');
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.xrayOnline = true;
+    s.powerCells = 9;
+    const [a, b, c] = s.players;
+
+    s = startVote(s);
+    expect(skipAvailable(s, a.id)).toBe(true);
+    s = castBallot(s, a.id, 'SKIP').state;
+    // Changing your mind before the ballot closes costs nothing.
+    s = castBallot(s, b.id, 'SKIP').state;
+    s = castBallot(s, b.id, c.id).state;
+    s = resolveVote(s).state;
+
+    expect(skipAvailable(s, a.id)).toBe(false);
+    expect(skipAvailable(s, b.id)).toBe(true);
+
+    s = startVote(s);
+    expect(castBallot(s, a.id, 'SKIP').ok).toBe(false);
+    expect(castBallot(s, b.id, 'SKIP').ok).toBe(true);
+    expect(castBallot(s, a.id, c.id).ok).toBe(true); // they can still name someone
+  });
+});
+
+describe('the Med bay can be smashed once the X-ray works', () => {
+  it('is only legal from a neighbour, and only while the X-ray is online', () => {
+    const s = makeGame(6, { mimics: ['Ann'] });
+    expect(isLegalBreak(s, 'oxygen', 'medbay')).toBe(false); // still under repair
+    s.xrayOnline = true;
+    for (const room of ['oxygen', 'reactor', 'steering'] as RoomId[])
+      expect(isLegalBreak(s, room, 'medbay')).toBe(true);
+    expect(isLegalBreak(s, 'medbay', 'medbay')).toBe(false); // inside, that is the Corrupt
+    expect(isLegalBreak(s, 'cargo', 'medbay')).toBe(false); // no pipe
+  });
+
+  it('knocks one repair off the track, takes the scanner offline, and lights no fuse', () => {
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.repairProgress = s.config.repairTarget;
+    s.xrayOnline = true;
+    s.scrap = 0; // nobody can win the repair straight back this round
+    sub(s, 'Ann', 'oxygen', 'medbay', 'SABO');
+    for (const n of ['Bo', 'Cal', 'Dee', 'Eva', 'Fin']) sub(s, n, 'reactor');
+    const { state, report } = resolveRound(s, rng());
+
+    expect(state.repairProgress).toBe(s.config.repairTarget - 1);
+    expect(state.xrayOnline).toBe(false);
+    expect(state.rooms.medbay.broken).toBe(false);
+    expect(state.rooms.medbay.fuse).toBeNull();
+    expect(report.rooms.find((r) => r.room === 'medbay')!.summary).toContain('smashed');
+    expect(shouldVote(state)).toBe(false);
+    expect(voteSkipReason(state)).toBe('XRAY_OFFLINE');
+  });
+
+  it('comes back online once the crew wins the repair back', () => {
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.repairProgress = s.config.repairTarget - 1;
+    s.scrap = 4;
+    for (const n of ['Ann', 'Bo', 'Cal']) sub(s, n, 'medbay');
+    for (const n of ['Dee', 'Eva', 'Fin']) sub(s, n, 'reactor');
+    const { state } = resolveRound(s, scriptedRng([0, 0, 0, 0, 0, 0, 0, 0]));
+    expect(state.repairProgress).toBe(s.config.repairTarget);
+    expect(state.xrayOnline).toBe(true);
+  });
+});
+
+describe('why a round ends without a vote', () => {
+  it('names the missing condition, and says nothing when the scan can run', () => {
+    const s = makeGame(6);
+    expect(voteSkipReason(s)).toBe('XRAY_OFFLINE');
+    s.xrayOnline = true;
+    s.powerCells = s.config.scanCostCells - 1;
+    expect(voteSkipReason(s)).toBe('NOT_ENOUGH_CELLS');
+    s.powerCells = s.config.scanCostCells;
+    expect(voteSkipReason(s)).toBeNull();
+    expect(toPublicState(s).voteSkipReason).toBeNull();
+    for (const p of s.players.slice(1)) p.alive = false;
+    expect(voteSkipReason(s)).toBe('TOO_FEW_PLAYERS');
   });
 });

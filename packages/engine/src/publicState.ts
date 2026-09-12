@@ -1,4 +1,4 @@
-import { upcomingStep, type Upcoming } from './engine.js';
+import { upcomingStep, voteSkipReason, type Upcoming } from './engine.js';
 import { ROOMS } from './map.js';
 import { settingsLine } from './settings.js';
 import type {
@@ -11,6 +11,7 @@ import type {
   RoomId,
   RoomReport,
   Role,
+  VoteSkipReason,
 } from './types.js';
 
 /**
@@ -36,6 +37,8 @@ export interface PublicPlayer {
 export interface PublicVote {
   stage: 'FIRST' | 'RUNOFF';
   candidates: string[];
+  /** Who may cast a ballot. In a runoff the candidates are not on this list. */
+  voters: string[];
   allowSkip: boolean;
   /** Empty while the vote is running — choices are revealed only once it resolves. */
   ballots: Ballot[];
@@ -90,9 +93,18 @@ export interface PublicState {
   upcoming: Upcoming | null;
   /** Whether this round ends in a vote. Only knowable once the round has resolved. */
   voteThisRound: 'YES' | 'NO' | 'UNKNOWN';
+  /** Which of the three scan conditions is missing right now, so the monitor can say so. */
+  voteSkipReason: VoteSkipReason | null;
+  /**
+   * Manual steps only: the server time from which the host's Next press is accepted. A fresh
+   * step settles for a moment first, and Act and the ballot wait for the players still in
+   * them, so a held Space bar can never blow through a phase before anyone has answered.
+   * 0 means "any time".
+   */
+  stepReadyAt: number;
 }
 
-export function toPublicState(state: GameState, lockedIn = 0): PublicState {
+export function toPublicState(state: GameState, lockedIn = 0, stepReadyAt = 0): PublicState {
   const over = state.phase === 'GAME_OVER';
   // With hidden votes the ballots themselves never leave the server — not in the live vote,
   // not in the log, not at game over. Only the outcome does.
@@ -148,6 +160,7 @@ export function toPublicState(state: GameState, lockedIn = 0): PublicState {
       ? {
           stage: state.vote.stage,
           candidates: state.vote.candidates.slice(),
+          voters: state.vote.voters.slice(),
           allowSkip: state.vote.allowSkip,
           ballots: state.vote.result && !hide ? state.vote.ballots.map((b) => ({ ...b })) : [],
           voted: state.vote.ballots.map((b) => b.voterId),
@@ -172,6 +185,8 @@ export function toPublicState(state: GameState, lockedIn = 0): PublicState {
     step: state.step,
     upcoming: next,
     voteThisRound,
+    voteSkipReason: voteSkipReason(state),
+    stepReadyAt,
   };
 }
 

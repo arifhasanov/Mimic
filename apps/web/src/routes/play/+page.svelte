@@ -20,6 +20,12 @@
   const gameState = $derived(game.state);
   const me = $derived(gameState?.players.find((p) => p.id === selfId) ?? null);
   const brokenRooms = $derived((gameState?.rooms ?? []).filter((r) => r.broken).map((r) => r.id));
+  /** A runoff candidate does not vote on themselves — the rest of the table decides. */
+  const onTheBallot = $derived(
+    !!gameState?.vote && !gameState.vote.result && !gameState.vote.voters.includes(selfId),
+  );
+  /** One skip per player for the whole game; the server tells this phone whether it has it. */
+  const canSkip = $derived((gameState?.vote?.allowSkip ?? false) && (game.voteInfo?.skipAvailable ?? true));
 
   /** Crew mottos are filler: the card must have the same line count and roughly the same
       length for both roles, so a neighbour learns nothing from the shape of the text. */
@@ -66,6 +72,12 @@
   // A fresh round means a fresh shuffle and a fresh lock.
   let lastRound = $state(-1);
   let lastPhase = $state('');
+  /**
+   * One ballot per key. A runoff opens a *second* ballot inside the same VOTE phase, so
+   * watching the phase alone left this phone on "Locked in" with the runoff names never
+   * shown — the stage has to be part of the key.
+   */
+  let lastBallot = $state('');
   $effect(() => {
     if (!gameState) return;
     if (gameState.round !== lastRound) {
@@ -75,7 +87,11 @@
     if (gameState.phase !== lastPhase) {
       lastPhase = gameState.phase;
       if (gameState.phase === 'ACT') locked = false;
-      if (gameState.phase === 'VOTE') voted = false;
+    }
+    const ballot = gameState.vote ? gameState.round + ':' + gameState.vote.stage : '';
+    if (ballot !== lastBallot) {
+      lastBallot = ballot;
+      voted = false;
     }
   });
 
@@ -104,8 +120,10 @@
   }
 
   async function submitBallot(choice: string) {
-    await emitAck('submitBallot', { token: session!.token, choice });
-    voted = true;
+    const res = await emitAck<{ ok: boolean }>('submitBallot', { token: session!.token, choice });
+    // A refused ballot — a spent skip, a name that is no longer on it — leaves the phone on
+    // the flow so the player can choose again, rather than on a Locked-in screen that lies.
+    voted = res.ok !== false;
   }
 </script>
 
@@ -158,13 +176,18 @@
       <p class="sub">Look at the monitor.</p>
       <button class="change" onclick={() => (locked = false)}>CHANGE</button>
     </div>
+  {:else if gameState.phase === 'VOTE' && onTheBallot}
+    <div class="pad">
+      <p class="say">You are on the ballot.</p>
+      <p class="sub">The rest of the crew decides. Talk, do not vote.</p>
+    </div>
   {:else if gameState.phase === 'VOTE' && !voted && !gameState.vote?.result}
     <div class="flowpad">
-      <VoteFlow {gameState} {selfId} onsubmit={submitBallot} />
+      <VoteFlow {gameState} {selfId} skipAvailable={canSkip} onsubmit={submitBallot} />
     </div>
   {:else if gameState.phase === 'VOTE'}
     <div class="pad">
-      <p class="say">Locked in.</p>
+      <p class="say">{voted ? 'Locked in.' : 'Votes are in.'}</p>
       <p class="sub">Look at the monitor.</p>
     </div>
   {:else if gameState.phase === 'GAME_OVER'}
