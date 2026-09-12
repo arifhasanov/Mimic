@@ -60,6 +60,13 @@ export const shipMap = {
     fps: 7.5,
     glass: { x: 19.74, y: 20.62, w: 5.02, h: 11.26 },
   },
+  /** Six assembly stages, laid out in three columns and two rows, placed on the Medbay floor. */
+  xray: {
+    image: '/xray-assembly.png',
+    animation: '/xray-animation.png',
+    floor: '/ship-medbay-empty.png',
+    box: { x: 52, y: 60.5, w: 19, h: 25.5 },
+  },
 };
 
 export const ROOM_ORDER: RoomId[] = ['reactor', 'cargo', 'steering', 'oxygen', 'medbay'];

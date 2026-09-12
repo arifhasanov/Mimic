@@ -1,5 +1,6 @@
 <script lang="ts">
   import HazardOverlay from './HazardOverlay.svelte';
+  import XrayAssembly from './XrayAssembly.svelte';
   import { ROOM_NAMES, ROOM_ORDER, shipMap } from '$lib/shipMap.config';
   import type { PublicState, RoomId } from '$lib/types';
 
@@ -83,6 +84,13 @@
   {/each}
 
   <img src={shipMap.image} alt="" class="art" />
+  <XrayAssembly
+    progress={gameState.repairProgress}
+    target={gameState.config.repairTarget}
+    online={gameState.xrayOnline}
+    powerCells={gameState.powerCells}
+    scanCost={gameState.config.scanCostCells}
+  />
 
   <div
     class="sprite core"
