@@ -40,6 +40,8 @@ export interface Evidence {
   room?: RoomId;
   /** Everyone this piece of evidence points at. */
   suspects: string[];
+  /** Original public occupants; private exclusions must not become claims of being alone. */
+  witnesses?: string[];
   weight: number;
 }
 
@@ -71,6 +73,8 @@ export interface BotMind {
   scapegoat: string | null;
   /** Mimic only: rounds left of playing it straight because the heat is on. */
   layLow: number;
+  /** Semantic claims already made, independent of their wording. */
+  spoken: Record<string, number>;
 }
 
 /** What the state looked like when Act opened, so the report can be read against it. */
@@ -108,6 +112,7 @@ export function createMind(id: string, personality: Personality, skill: BotSkill
     lastBallot: null,
     scapegoat: null,
     layLow: 0,
+    spoken: {},
   };
 }
 
@@ -202,18 +207,21 @@ export function readReport(state: GameState, before: ActSnapshot): ReadReport {
   const stolen: RoomId[] = [];
   const slack: RoomId[] = [];
   const reactorWorkers = Math.max(0, occupants.reactor.length - (repaired.includes('reactor') ? 1 : 0));
-  const expectedCells =
-    before.powerCells + Math.min(reactorWorkers * cfg.cellsPerReactorWorker, cfg.reactorCapCells);
-  const cellsShort = expectedCells - report.powerCells;
-  if (cellsShort > cfg.cellsPerReactorWorker) stolen.push('reactor');
-  else if (cellsShort > 0) slack.push('reactor');
+  const production = (room: RoomId) => Number(/\+(\d+)/.exec(report.rooms.find(r => r.room === room)?.summary ?? '')?.[1] ?? 0);
+  const cellsMade = production('reactor');
+  const cellsStolen = before.powerCells + cellsMade - report.powerCells;
+  if (cellsStolen > 0) stolen.push('reactor');
+  else if (cellsMade < Math.min(reactorWorkers * cfg.cellsPerReactorWorker, cfg.reactorCapCells)) slack.push('reactor');
 
-  const scrapBefore = before.scrap + occupants.cargo.length * cfg.scrapPerCargoWorker;
+  const scrapMade = production('cargo');
+  const scrapBefore = before.scrap + scrapMade;
   const attempts = Math.min(occupants.medbay.length, cfg.medbaySeats);
   const paid = Math.min(attempts, Math.floor(scrapBefore / cfg.repairCostScrap));
+  // Spending and corruption can be ambiguous; only call theft when even maximal spending
+  // cannot explain the missing stock. Lost cargo production is independently observable.
   const scrapShort = scrapBefore - paid * cfg.repairCostScrap - report.scrap;
-  if (scrapShort > cfg.scrapPerCargoWorker) stolen.push('cargo');
-  else if (scrapShort > 0) slack.push('cargo');
+  if (scrapShort > 0) stolen.push('cargo');
+  else if (scrapMade < occupants.cargo.length * cfg.scrapPerCargoWorker) slack.push('cargo');
 
   const med = report.rooms.find((r) => r.room === 'medbay');
   const repairs = Number(/\+(\d+) repair/.exec(med?.summary ?? '')?.[1] ?? 0);
@@ -237,7 +245,7 @@ export function absorbRound(mind: BotMind, state: GameState, before: ActSnapshot
   const usable = (list: string[]) =>
     list.filter((id) => id !== mind.id && players[id] && players[id].alive && !players[id].verified);
   const push = (kind: EvidenceKind, suspects: string[], weight: number, room?: RoomId) => {
-    addEvidence(mind, { round: report.round, kind, room, suspects: usable(suspects), weight }, rng);
+    addEvidence(mind, { round: report.round, kind, room, suspects: usable(suspects), witnesses: suspects.slice(), weight }, rng);
     // How the table sees me: the same share, on my own entry.
     if (suspects.includes(mind.id))
       mind.suspicion[mind.id] = (mind.suspicion[mind.id] ?? 0) + weight / Math.max(1, suspects.length);
@@ -249,13 +257,11 @@ export function absorbRound(mind: BotMind, state: GameState, before: ActSnapshot
 
   // A poor Med bay round is weak evidence — and none at all if the team's one sabotage was a break.
   const teamMode = cfg.sabotagesPerRound === 'team';
-  if (r.paid >= 2 && !(teamMode && r.breaks.length) && r.repairs <= r.paid * cfg.repairSuccessChance - 1)
+  if (r.paid >= 2 && !(teamMode && (r.breaks.length || r.stolen.length || r.slack.length)) && r.repairs <= r.paid * cfg.repairSuccessChance - 1)
     push('MEDBAY', r.occupants.medbay, W.MEDBAY, 'medbay');
 
-  // Pointless work once the X-ray is up: scrap and the Med bay no longer do anything.
-  if (before.xrayOnline) {
-    for (const room of ['cargo', 'medbay'] as RoomId[]) for (const id of r.occupants[room]) push('IDLE', [id], W.IDLE, room);
-  }
+  // Cargo and Med bay reserves can repair a same-round scanner smash. Location alone
+  // is not evidence of disloyalty, even when another allocation would have been better.
 }
 
 /** Visible ballots after a scan: who shielded a Mimic, who pushed a scan onto crew. */
@@ -299,9 +305,11 @@ export function absorbVote(mind: BotMind, state: GameState, rng: Rng) {
 /** Another player accused someone out loud. Nudge, weighted by trust — never swallow whole. */
 export function hear(mind: BotMind, speaker: string, target: string, state: GameState) {
   if (speaker === mind.id) return;
+  if (state.players.find(p => p.id === target)?.verified) return;
+  if (mind.heard.some(h => h.speaker === speaker && h.target === target && h.round === state.round)) return;
   mind.heard.push({ speaker, target, round: state.round });
   if (target === mind.id) return;
-  const trust = mind.trust[speaker] ?? 1;
+  const trust = Math.min(2, mind.trust[speaker] ?? 1);
   mind.suspicion[target] = (mind.suspicion[target] ?? 0) + W.LISTEN * trust;
 }
 
@@ -333,8 +341,7 @@ export interface Slot {
 /**
  * Greedy marginal-value allocation for every living player. Repairs first, then the rooms
  * that still matter: before the X-ray, scrap feeds the Med bay and the Reactor banks cells;
- * after it, scrap and the Med bay are worthless, the Reactor is capped, and standing in
- * Steering or Oxygen undoes a same-round break for free (repair resolves after break).
+ * after it, reserve funded attempts against a same-round scanner smash and bank scan cells.
  */
 export function tablePlan(state: GameState): { slots: Slot[]; counts: Record<RoomId, number> } {
   const cfg = state.config;
@@ -351,21 +358,22 @@ export function tablePlan(state: GameState): { slots: Slot[]; counts: Record<Roo
     switch (room) {
       case 'reactor': {
         if ((k + 1) * cfg.cellsPerReactorWorker > cfg.reactorCapCells) return [0, 'cells'];
-        if (state.xrayOnline) return [state.powerCells < cfg.scanCostCells * 2 ? 9 : 5, 'cells'];
-        return [state.powerCells < cfg.scanCostCells ? 6 : 3, 'cells'];
+        const bank = state.powerCells + k * cfg.cellsPerReactorWorker;
+        if (state.xrayOnline) return [bank < cfg.scanCostCells ? 9 : bank < cfg.scanCostCells * 2 ? 5 : 3, 'cells'];
+        return [bank < cfg.scanCostCells ? 5.5 : 3, 'cells'];
       }
       case 'cargo': {
-        if (state.xrayOnline) return [0, 'scrap'];
         const desired =
-          cfg.repairCostScrap * Math.min(cfg.medbaySeats, 4, Math.ceil(remaining / cfg.repairSuccessChance));
+          cfg.repairCostScrap * (state.xrayOnline ? Math.min(2, cfg.medbaySeats) : Math.min(cfg.medbaySeats, 4, Math.ceil(remaining / cfg.repairSuccessChance)));
         const have = state.scrap + k * cfg.scrapPerCargoWorker;
-        return [have < desired ? 7 - k : 1, 'scrap'];
+        return [have < desired ? 7 - k : state.xrayOnline ? 0 : 1, 'scrap'];
       }
       case 'medbay': {
-        if (state.xrayOnline) return [0, 'medbay'];
         if (k >= cfg.medbaySeats) return [0, 'medbay'];
+        if (state.xrayOnline && k >= 2) return [0, 'medbay'];
         const budget = state.scrap + counts.cargo * cfg.scrapPerCargoWorker;
         if ((k + 1) * cfg.repairCostScrap > budget) return [0.5, 'medbay'];
+        if (state.xrayOnline) return [k < 2 ? 6.5 - k * .5 : 0, 'medbay'];
         if (k >= Math.ceil(remaining / cfg.repairSuccessChance) + 1) return [1, 'medbay'];
         return [6, 'medbay'];
       }
@@ -396,13 +404,14 @@ export function tablePlan(state: GameState): { slots: Slot[]; counts: Record<Roo
   return { slots, counts };
 }
 
-/** Which slot this bot fills: bots take the plan in id order so they never pile into one room. */
+/** Rotate duties so the same seats do not monopolize one room throughout the game. */
 export function ownSlot(mind: BotMind, state: GameState, plan: { slots: Slot[] }): Slot {
   const bots = livingPlayers(state)
     .filter((p) => p.isBot)
     .map((p) => p.id)
     .sort();
-  const i = Math.max(0, bots.indexOf(mind.id));
+  const offset = Math.max(0, state.round - 1) % Math.max(1, bots.length);
+  const i = (Math.max(0, bots.indexOf(mind.id)) + offset) % Math.max(1, bots.length);
   return plan.slots[i % plan.slots.length] ?? { room: 'reactor', why: 'cells' };
 }
 
@@ -445,7 +454,9 @@ interface Sabotage extends BotChoice {
  */
 function sabotages(mind: BotMind, state: GameState, plan: ReturnType<typeof tablePlan>): Sabotage[] {
   const cfg = state.config;
-  const counts = plan.counts;
+  const counts = { ...plan.counts };
+  // The saboteur gives up its assigned work. Do not count that work as cover or repair.
+  counts[ownSlot(mind, state, plan).room] = Math.max(0, counts[ownSlot(mind, state, plan).room] - 1);
   const roundsLeft = cfg.rounds - state.round;
   const brokenNow = ROOMS.filter((r) => state.rooms[r].broken).length;
   const cover = (others: number) => {
@@ -461,7 +472,7 @@ function sabotages(mind: BotMind, state: GameState, plan: ReturnType<typeof tabl
     const others = breakers(target).reduce((n, r) => n + counts[r], 0);
     let base = 10;
     if (target === 'reactor' && state.xrayOnline) base += 6;
-    if (roundsLeft <= cfg.fuseLength) base += 8;
+    if (roundsLeft >= cfg.fuseLength && counts[target] === 0) base += 4;
     if (brokenNow >= 1) base += 4;
     base += counts[target] === 0 ? 5 : -6; // an occupied room is repaired the same round
     for (const room of breakers(target)) {
@@ -475,7 +486,9 @@ function sabotages(mind: BotMind, state: GameState, plan: ReturnType<typeof tabl
   if (state.xrayOnline) {
     const cells =
       state.powerCells + Math.min(counts.reactor * cfg.cellsPerReactorWorker, cfg.reactorCapCells);
-    const base = 12 + (cells - cfg.stealAmount >= cfg.scanCostCells ? 8 : 0);
+    const funded = Math.min(counts.medbay, cfg.medbaySeats, Math.floor((state.scrap + counts.cargo * cfg.scrapPerCargoWorker) / cfg.repairCostScrap));
+    const staysOffline = Math.pow(1 - cfg.repairSuccessChance, funded);
+    const base = 4 + (cells >= cfg.scanCostCells ? 24 : 10) * staysOffline;
     const from = breakers('medbay');
     const others = from.reduce((n, r) => n + counts[r], 0);
     for (const room of from)
@@ -491,10 +504,10 @@ function sabotages(mind: BotMind, state: GameState, plan: ReturnType<typeof tabl
 
   const cellsAfter =
     state.powerCells + Math.min(counts.reactor * cfg.cellsPerReactorWorker, cfg.reactorCapCells);
-  if (cellsAfter > 0) {
+  if (state.powerCells > 0) {
     let v = state.xrayOnline ? 8 : 3;
-    if (state.xrayOnline && cellsAfter >= cfg.scanCostCells && cellsAfter - cfg.stealAmount < cfg.scanCostCells)
-      v = 22; // this steal cancels the vote
+    if (state.xrayOnline && cellsAfter >= cfg.scanCostCells && cellsAfter - Math.min(state.powerCells, cfg.stealAmount) < cfg.scanCostCells)
+      v = 32; // Denying a scan now outweighs an unattended fuse that can be fixed later.
     out.push({ room: 'reactor', focus: 'reactor', action: 'SABO', value: v * cover(counts.reactor) });
   }
 
@@ -519,6 +532,7 @@ export function decideRound(minds: BotMind[], state: GameState, rng: Rng) {
     state.config.sabotagesPerRound === 'team' && mimics.length > 1
       ? mimics.slice().sort((a, b) => heat(a) - heat(b) || a.id.localeCompare(b.id))[0]
       : null;
+  const reservedBreaks = new Set<RoomId>();
 
   for (const mind of minds) {
     const self = players[mind.id];
@@ -528,7 +542,8 @@ export function decideRound(minds: BotMind[], state: GameState, rng: Rng) {
       continue;
     }
     chooseScapegoat(mind, state);
-    decideMimic(mind, state, rng, plan, designated ? designated.id === mind.id : true, heat(mind));
+    decideMimic(mind, state, rng, plan, designated ? designated.id === mind.id : true, heat(mind), reservedBreaks);
+    if (mind.plan?.action === 'SABO' && isLegalBreak(state, mind.plan.room, mind.plan.focus)) reservedBreaks.add(mind.plan.focus);
   }
 }
 
@@ -539,9 +554,10 @@ function decideMimic(
   plan: ReturnType<typeof tablePlan>,
   designated: boolean,
   heat: number,
+  reservedBreaks: Set<RoomId>,
 ) {
   const t = tune(mind.skill);
-  const options = sabotages(mind, state, plan);
+  const options = sabotages(mind, state, plan).filter(o => !isLegalBreak(state, o.room, o.focus) || !reservedBreaks.has(o.focus));
   const sorted = options.slice().sort((a, b) => b.value - a.value);
   const best = sorted[0];
   const layLowValue = 4 + heat * 3;
@@ -549,12 +565,13 @@ function decideMimic(
   if (mind.layLow > 0) mind.layLow -= 1;
   const act =
     best &&
-    (designated || best.value >= 20) &&
+    designated &&
     mind.layLow === 0 &&
-    (mind.skill === 'EASY' ? rng.chance(0.55) : best.value > layLowValue);
+    (mind.skill === 'EASY' ? rng.chance(0.55) : best.value > layLowValue || state.round === state.config.rounds);
 
   if (!act) {
     blend(mind, state, rng, plan);
+    mind.plan!.action = 'WORK'; // A Mimic pressing SABO while blending can really sabotage.
     if (heat > t.voteAt && mind.skill !== 'EASY') mind.layLow = 1;
     return;
   }
@@ -598,21 +615,22 @@ export function chooseBallot(
     self?.role === 'MIMIC'
       ? state.players.filter((p) => p.role === 'MIMIC' && p.id !== mind.id).map((p) => p.id)
       : [];
-  const ranked = suspects(mind, state, teammates).filter((s) => vote.candidates.includes(s.id));
+  const ranked = rng.shuffle(suspects(mind, state, teammates).filter((s) => vote.candidates.includes(s.id)))
+    .sort((a, b) => b.score - a.score);
   const done = (choice: string, reason: BallotReason) => {
     const evidence = choice === 'SKIP' ? null : evidenceAgainst(mind, choice);
     mind.lastBallot = { round: state.round, choice, reason, evidence };
     return { choice, reason, evidence };
   };
   const anyone = () => {
-    const pool = vote.candidates.filter((id) => id !== mind.id && !teammates.includes(id));
+    const pool = vote.candidates.filter((id) => id !== mind.id && !teammates.includes(id) && !players[id]?.verified);
     return pool.length ? rng.pick(pool) : vote.candidates[0];
   };
 
   if (self?.role === 'MIMIC') {
     // Push the table's own suspicion, never a teammate. With no grounds at all, a skip reads
     // as caution rather than as protecting someone.
-    const goat = mind.scapegoat && vote.candidates.includes(mind.scapegoat) ? mind.scapegoat : null;
+    const goat = mind.scapegoat && ranked.some(p => p.id === mind.scapegoat) ? mind.scapegoat : null;
     if (goat && goat !== mind.id) return done(goat, vote.stage === 'RUNOFF' ? 'RUNOFF' : 'EVIDENCE');
     const top = ranked[0];
     if (top && top.score >= 0.3) return done(top.id, vote.stage === 'RUNOFF' ? 'RUNOFF' : 'EVIDENCE');
@@ -629,7 +647,9 @@ export function chooseBallot(
   const clear = top && top.score >= t.voteAt && (second < 0.5 || top.score >= second * 1.3);
   if (clear) return done(top.id, 'EVIDENCE');
   const cellsToSpare = state.powerCells >= state.config.scanCostCells * 2;
-  if (top && top.score > 0 && cellsToSpare) return done(top.id, 'VERIFY');
+  const mimicsLeft = state.config.aliens - state.players.filter(p => !p.alive).length;
+  const urgent = state.config.rounds - state.round + 1 <= mimicsLeft + 1;
+  if (top && (cellsToSpare || urgent)) return done(top.id, 'VERIFY');
   if (canSkip) return done('SKIP', cellsToSpare ? 'NO_LEAD' : 'SAVE_CELLS');
   return done(top ? top.id : anyone(), top ? 'EVIDENCE' : 'FORCED');
 }
@@ -641,6 +661,6 @@ export function chooseScapegoat(mind: BotMind, state: GameState) {
   const ranked = suspects(mind, state, teammates);
   const top = ranked[0];
   if (top && top.score >= tune(mind.skill).accuseAt * 0.5 && players[top.id]?.alive) mind.scapegoat = top.id;
-  else if (mind.scapegoat && !players[mind.scapegoat]?.alive) mind.scapegoat = null;
+  else if (mind.scapegoat && (!players[mind.scapegoat]?.alive || players[mind.scapegoat]?.verified)) mind.scapegoat = null;
   else if (!top || top.score < 0.2) mind.scapegoat = null;
 }

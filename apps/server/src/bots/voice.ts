@@ -6,7 +6,7 @@ import type { BallotReason, Evidence, Personality, Why } from './brain';
  * plan; there is no field for a role, an intent or a real target anywhere in here, so the
  * voice cannot leak what it never sees. Crew and Mimic bots draw from the same pool.
  */
-export type Mood = 'break' | 'stolen' | 'short' | 'xray' | 'good' | 'bad' | 'quiet' | 'repaired';
+export type Mood = 'break' | 'smash' | 'stolen' | 'short' | 'xray' | 'good' | 'bad' | 'quiet' | 'repaired';
 
 export type Utterance =
   | { kind: 'PLAN'; counts: Record<RoomId, number>; xrayJustUp: boolean }
@@ -26,6 +26,8 @@ export interface VoiceContext {
   rng: Rng;
   name: (id: string) => string;
   round: number;
+  /** Shared table history, so two different bots do not echo the same line. */
+  recent?: readonly string[];
 }
 
 type T = (u: any, c: VoiceContext) => string;
@@ -38,8 +40,8 @@ const lower = (r: RoomId | undefined) => room(r).toLowerCase();
 export function describeEvidence(e: Evidence | null, target: string, c: VoiceContext): string {
   const T = c.name(target);
   if (!e) return `${T} just feels off to me`;
-  const n = e.suspects.length;
-  const when = e.round === c.round - 1 ? 'last round' : `in round ${e.round}`;
+  const n = (e.witnesses ?? e.suspects).length;
+  const when = e.round === c.round ? 'this round' : e.round === c.round - 1 ? 'last round' : `in round ${e.round}`;
   switch (e.kind) {
     case 'BREAK':
       return n <= 1
@@ -51,12 +53,12 @@ export function describeEvidence(e: Evidence | null, target: string, c: VoiceCon
         : `${e.room === 'reactor' ? 'cells' : 'scrap'} went missing from the ${lower(e.room)} ${when} and ${T} was in there`;
     case 'SLACK':
       return n <= 1
-        ? `${T} was alone in the ${lower(e.room)} ${when} and it produced nothing`
-        : `the ${lower(e.room)} came up a worker short ${when}, and ${T} was one of the ${n} in it`;
+        ? `${T} was alone in the ${lower(e.room)} ${when} and its production came up short`
+        : `the ${lower(e.room)} produced less than its staffing suggested ${when}, and ${T} was one of the ${n} in it`;
     case 'MEDBAY':
-      return `the Med bay did almost nothing ${when} and ${T} was one of the ${n} at the table`;
+      return `Med bay repairs fell below expectation ${when} and ${T} was one of ${n} there; bad luck is still possible`;
     case 'IDLE':
-      return `${T} went to the ${lower(e.room)} ${when} with the X-ray already up. That does nothing`;
+      return `${T} went to the ${lower(e.room)} ${when}; I want to understand the allocation`;
     case 'SHIELD':
       return `${T} did not vote for the Mimic we caught`;
     case 'PUSHED':
@@ -69,7 +71,7 @@ const whyWords: Record<Why, string[]> = {
   guard: ['sit on the pipe so a break gets fixed the same round', 'keep an eye on it', 'guard it'],
   scrap: ['bring in scrap for the Med bay', 'haul scrap', 'keep the Med bay fed'],
   cells: ['bank cells for a scan', 'make cells', 'keep the Reactor at cap'],
-  medbay: ['work on the X-ray', 'roll for repairs', 'push the repair track'],
+  medbay: ['keep the X-ray in working order', 'cover the repair track', 'keep repairs moving'],
 };
 
 const planLine = (u: any, c: VoiceContext) => {
@@ -84,24 +86,24 @@ const POOLS: Record<Utterance['kind'], Pool> = {
     any: [
       (u, c) =>
         u.xrayJustUp
-          ? `X-ray is up. No more scrap runs, the Med bay is done. ${planLine(u, c)}.`
+          ? `X-ray is up. Keep repair cover in case it gets hit. ${planLine(u, c)}.`
           : `Plan: ${planLine(u, c)}. Anyone object?`,
       (u, c) =>
         u.xrayJustUp
-          ? `Scrap is worthless now that the X-ray works. ${planLine(u, c)} — and someone guards the pipes.`
-          : `Same as always unless someone has a better idea: ${planLine(u, c)}.`,
+          ? `We need cells and backup repairs now. ${planLine(u, c)}.`
+          : `Let's divide the work: ${planLine(u, c)}.`,
     ],
     terse: [(u, c) => (u.xrayJustUp ? `X-ray up. ${planLine(u, c)}.` : `${planLine(u, c)}.`)],
     analytical: [
       (u, c) =>
         u.xrayJustUp
-          ? `The X-ray is online, so cargo and Med bay work is wasted from here. ${planLine(u, c)}.`
+          ? `An online scanner can still be smashed. Budget for repairs: ${planLine(u, c)}.`
           : `By the numbers: ${planLine(u, c)}. That keeps scrap and attempts in step.`,
     ],
     joker: [
       (u, c) =>
         u.xrayJustUp
-          ? `X-ray's alive! Drop the scrap, nobody needs it. ${planLine(u, c)}.`
+          ? `X-ray's alive! Let's keep it that way. ${planLine(u, c)}.`
           : `Proposal from the department of obvious: ${planLine(u, c)}.`,
     ],
   },
@@ -146,13 +148,13 @@ const POOLS: Record<Utterance['kind'], Pool> = {
         u.claim === 'verified'
           ? `I've been scanned, ${c.name(u.accuser)}. Look somewhere else.`
           : u.claim === 'notAlone'
-            ? `${c.name(u.accuser)}, I wasn't the only one there. ${u.evidence ? u.evidence.suspects.length : 'Several'} of us could have done it.`
+            ? `${c.name(u.accuser)}, I wasn't the only one in reach. ${u.evidence ? (u.evidence.witnesses ?? u.evidence.suspects).length : 'Several'} of us could have done it.`
             : `I was working, ${c.name(u.accuser)}. Check where I've been every round.`,
       (u, c) =>
         u.claim === 'verified'
           ? `Scanned crew, remember? Move on.`
           : u.claim === 'notAlone'
-            ? `That's thin. Anyone next to that room could have done it, not just me.`
+            ? `That evidence includes other people too. What makes me your first choice?`
             : `Wrong, ${c.name(u.accuser)}. I've done nothing but work.`,
     ],
     nervous: [
@@ -196,11 +198,11 @@ const POOLS: Record<Utterance['kind'], Pool> = {
   },
   WASTE: {
     any: [
-      (u, c) => `Why did ${c.name(u.target)} go to ${room(u.room)}? The X-ray is up, that does nothing.`,
+      (u, c) => `${c.name(u.target)}, was that ${room(u.room)} assignment repair cover?`,
       (u, c) => `${c.name(u.target)} in the ${lower(u.room)} after the X-ray came online. Odd choice.`,
     ],
     analytical: [
-      (u, c) => `${c.name(u.target)} spent a round in the ${lower(u.room)} with the X-ray already online. Zero value.`,
+      (u, c) => `How much backup work do we need in the ${lower(u.room)}, ${c.name(u.target)}?`,
     ],
     joker: [(u, c) => `${c.name(u.target)} is collecting scrap for the memories, apparently.`],
   },
@@ -208,12 +210,14 @@ const POOLS: Record<Utterance['kind'], Pool> = {
     any: [
       (u) => {
         switch (u.mood) {
+          case 'smash':
+            return `The Med bay was hit. Check the repair track before we plan a scan.`;
           case 'break':
             return `${room(u.room)} is broken. Someone gets on that next round.`;
           case 'stolen':
             return `We are short on ${u.room === 'reactor' ? 'cells' : 'scrap'}. Somebody in the ${lower(u.room)} took them.`;
           case 'short':
-            return `Count the ${lower(u.room)}: one fewer ${u.room === 'reactor' ? 'cell' : 'scrap haul'} than people. Someone in there was not working.`;
+            return `The ${lower(u.room)} produced less than its staffing suggested. Someone in there was not working.`;
           case 'xray':
             return `X-ray online. Now we can actually check people.`;
           case 'good':
@@ -230,6 +234,14 @@ const POOLS: Record<Utterance['kind'], Pool> = {
     nervous: [
       (u) => {
         switch (u.mood) {
+          case 'smash':
+            return `They hit the scanner. Did our repair cover keep it running?`;
+          case 'repaired':
+            return `${room(u.room)} is repaired. That's one less fuse to worry about.`;
+          case 'good':
+            return `Those repairs help. Let's keep the scanner covered.`;
+          case 'quiet':
+            return `No clear incident to explain this round.`;
           case 'break':
             return `${room(u.room)} just broke. The fuse is ticking. Someone fix it, please.`;
           case 'stolen':
@@ -246,6 +258,14 @@ const POOLS: Record<Utterance['kind'], Pool> = {
     joker: [
       (u) => {
         switch (u.mood) {
+          case 'smash':
+            return `Someone has a grudge against the X-ray. Check the repair track.`;
+          case 'repaired':
+            return `${room(u.room)} is fixed. I'll take functioning machinery.`;
+          case 'good':
+            return `The Med bay delivered. More of that, please.`;
+          case 'quiet':
+            return `Quiet report. Nobody gets a medal for that yet.`;
           case 'break':
             return `${room(u.room)}, broken. Great teamwork, whoever did that.`;
           case 'stolen':
@@ -269,8 +289,8 @@ const POOLS: Record<Utterance['kind'], Pool> = {
           return u.reason === 'SAVE_CELLS'
             ? `I skipped. A scan on a guess would burn cells we can't spare.`
             : `I skipped — nothing solid enough to spend a scan on.`;
-        if (u.reason === 'VERIFY') return `I voted ${c.name(u.choice)} — we had cells to spare and a clear crew is useful too.`;
-        if (u.reason === 'RUNOFF') return `${c.name(u.choice)} was the better of the two for me.`;
+        if (u.reason === 'VERIFY') return `I voted ${c.name(u.choice)} — learning a role is useful while we still have time to act on it.`;
+        if (u.reason === 'RUNOFF') return `${c.name(u.choice)} was my strongest lead among the runoff candidates.`;
         if (u.reason === 'FORCED') return `Had to pick someone. ${c.name(u.choice)} it was.`;
         return `I voted ${c.name(u.choice)} because ${describeEvidence(u.evidence, u.choice, c)}.`;
       },
@@ -305,6 +325,8 @@ const POOLS: Record<Utterance['kind'], Pool> = {
             return u.me ? `See? Clean. Suspicion is very rude.` : `${c.name(u.target)} is crew. Whoops.`;
           case 'SKIPPED':
             return `We skipped. Bold strategy.`;
+          case 'TIED':
+            return `Dead heat. The scanner sits this one out.`;
           default:
             return `Runoff! The drama.`;
         }
@@ -317,6 +339,8 @@ const POOLS: Record<Utterance['kind'], Pool> = {
             return `Oh thank goodness, ${c.name(u.target)} was a Mimic.`;
           case 'CLEARED':
             return u.me ? `I told you it wasn't me.` : `${c.name(u.target)} was crew. Sorry, ${c.name(u.target)}.`;
+          case 'RUNOFF':
+            return `Another ballot. Let's settle on a target.`;
           default:
             return `No scan. I hope that was the right call.`;
         }
@@ -325,12 +349,98 @@ const POOLS: Record<Utterance['kind'], Pool> = {
   },
 };
 
-/** Turn an utterance into a line. Personality picks the flavour; the facts stay the same. */
+const EXTRA: Partial<Record<Utterance['kind'], T[]>> = {
+  PLAN: [
+    (u, c) => `Suggested assignments: ${planLine(u, c)}.`,
+    (u, c) => `Here's how I'd split the jobs: ${planLine(u, c)}.`,
+    (u, c) => `Can we cover this roster? ${planLine(u, c)}.`,
+    (u, c) => `For the next shift: ${planLine(u, c)}.`,
+  ],
+  INTENT: [
+    (u, c) => `Put me down for ${room(u.room)}; I'll ${c.rng.pick(whyWords[u.why as Why])}.`,
+    (u) => `I've got the ${lower(u.room)} assignment.`,
+    (u) => `You can count me in at ${room(u.room)}.`,
+    (u, c) => `Taking ${room(u.room)} to ${c.rng.pick(whyWords[u.why as Why])}.`,
+    (u) => `My next stop is ${room(u.room)}.`,
+    (u) => `I'll cover ${room(u.room)} this round.`,
+  ],
+  ACCUSE: [
+    (u, c) => `Can we check this detail? ${describeEvidence(u.evidence, u.target, c)}.`,
+    (u, c) => `My case for checking ${c.name(u.target)} is this: ${describeEvidence(u.evidence, u.target, c)}.`,
+    (u, c) => `Before we choose a scan, remember: ${describeEvidence(u.evidence, u.target, c)}.`,
+    (u, c) => `I haven't ruled out ${c.name(u.target)}. ${describeEvidence(u.evidence, u.target, c)}.`,
+  ],
+  AGREE: [
+    (u, c) => `I'd support checking ${c.name(u.target)} next.`,
+    (u, c) => `That makes ${c.name(u.target)} worth discussing.`,
+    (u, c) => `Keep ${c.name(u.target)} on the shortlist.`,
+    (u, c) => `${c.name(u.speaker)}, I'm following your reasoning about ${c.name(u.target)}.`,
+  ],
+  DISAGREE: [
+    (u, c) => `What separates ${c.name(u.target)} from the other possible suspects?`,
+    (u, c) => `I'd want another clue before settling on ${c.name(u.target)}.`,
+    (u, c) => `${c.name(u.speaker)}, let's check who else could have done it.`,
+  ],
+  NO_LEAD: [
+    () => `I need another report before naming someone.`,
+    () => `No useful accusation from me right now.`,
+    () => `I'll focus on my assignment until we have a better clue.`,
+    () => `Let's compare the next report with the work we planned.`,
+  ],
+  VOTE_REASON: [
+    (u, c) => u.choice === 'SKIP' ? `I kept my vote on skip; I wasn't convinced by the case.` : `My ballot was ${c.name(u.choice)}. ${u.evidence ? describeEvidence(u.evidence, u.choice, c) + '.' : 'I wanted more information from the scan.'}`,
+    (u, c) => u.choice === 'SKIP' ? `I wasn't ready to commit those cells.` : `${c.name(u.choice)} was my pick on that ballot${u.evidence ? ': ' + describeEvidence(u.evidence, u.choice, c) : '; I had no certain answer'}.`,
+  ],
+  REACT: [
+    (u) => ({
+      break: `${room(u.room)} needs a repair assignment before its fuse expires.`,
+      smash: `A hit on the Med bay cost a repair. Check whether the scanner recovered.`,
+      stolen: `The ${lower(u.room)} resource accounting shows a theft.`,
+      short: `Production in the ${lower(u.room)} doesn't match its headcount.`,
+      xray: `Scanner ready. Let's look at our cells and shortlist.`,
+      good: `The repair track moved in our favor.`, bad: `Poor repair results, but chance alone can do that.`,
+      quiet: `Nothing decisive in that report.`, repaired: `${room(u.room)} has been patched up.`,
+    }[u.mood as Mood]),
+    (u) => ({
+      break: `Put ${room(u.room)} on the repair list. We can't leave that fuse running.`,
+      smash: `Med bay sabotage showed up in the report. Repair cover matters.`,
+      stolen: `We lost resources from the ${lower(u.room)}. Who was assigned there?`,
+      short: `Someone in the ${lower(u.room)} didn't contribute the expected production.`,
+      xray: `We can start verifying people now, provided the cells are there.`,
+      good: `Useful progress from the Med bay.`, bad: `No repair progress. Let's avoid treating bad luck as proof.`,
+      quiet: `I'll wait for a stronger signal.`, repaired: `The ${lower(u.room)} repair landed.`,
+    }[u.mood as Mood]),
+  ],
+  VOTE_REACT: [
+    (u, c) => ({
+      CAUGHT: `${c.name(u.target)} is out. Let's revisit the evidence with that result in mind.`,
+      CLEARED: u.me ? `You have my scan result now. Let's use it.` : `We can trust ${c.name(u.target)} with a critical assignment now.`,
+      SKIPPED: `We kept the cells, but used a round without learning a role.`,
+      TIED: `The tie means no new information this round.`, RUNOFF: `Let's compare the remaining candidates before voting again.`,
+    }[u.outcome as 'CAUGHT' | 'CLEARED' | 'SKIPPED' | 'TIED' | 'RUNOFF']),
+  ],
+};
+
+const normalized = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const similarity = (a: string, b: string) => {
+  const left = new Set(normalized(a).split(' '));
+  const right = new Set(normalized(b).split(' '));
+  const common = [...left].filter(word => right.has(word)).length;
+  return common / Math.max(1, left.size + right.size - common);
+};
+
+/** Prefer fresh phrasing across the whole table. Silence beats recycling an exhausted pool. */
 export function render(u: Utterance, c: VoiceContext): string {
   const pool = POOLS[u.kind];
   const specific = pool[c.personality];
   const list = specific && (c.personality === 'terse' || c.rng.chance(0.75)) ? specific : (pool.any ?? specific)!;
-  let text = c.rng.pick(list)(u, c);
-  if (c.personality === 'nervous' && u.kind === 'INTENT' && c.rng.chance(0.2)) text += ' I don\'t like this.';
-  return text;
+  if (!c.recent) return c.rng.pick(list)(u, c);
+  const history = new Set(c.recent.map(normalized));
+  const templates = [...list, ...(pool.any ?? []), ...(specific ?? []), ...(EXTRA[u.kind] ?? [])];
+  const candidates = [...new Set(c.rng.shuffle(templates).map(t => t(u, c)))].filter(text => !history.has(normalized(text)));
+  if (!candidates.length) return '';
+  const recent = c.recent.slice(-16);
+  const novelty = (text: string) => Math.max(0, ...recent.map(old => similarity(text, old)));
+  return candidates.map(text => ({ text, similarity: novelty(text) }))
+    .sort((a, b) => a.similarity - b.similarity)[0].text;
 }

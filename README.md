@@ -161,32 +161,38 @@ card. The code lives in `apps/server/src/bots/`, in three layers that never mix:
 
 - **The brain** (`brain.ts`) reads every report the way a careful player would. A break
   implicates whoever stood in a room it could be launched from; a shortfall in scrap or
-  cells is a theft by someone in that room; a Med bay round far below the odds is weak
-  evidence against its occupants; a scrap run after the X-ray is online is pointless and
-  noted. Visible ballots count too — shielding a caught Mimic, or pushing a scan onto crew.
+  cells is checked against reported production and spending before calling it theft;
+  a Med bay round far below the odds is weak evidence against its occupants. Reactor caps
+  and repair spending do not count as sabotage. Visible ballots count too — shielding a
+  caught Mimic, or pushing a scan onto crew.
   Every bot keeps its own suspicion scores, trusts some players more than others, and
   listens to other bots' accusations with that trust applied. The crew plan is a greedy
   allocation from public state: repairs first (a fuse at one round left beats everything),
   then scrap and Med bay attempts kept in step, then the Reactor up to its cap. Once the
-  X-ray is up, Cargo and the Med bay are worth nothing, and a bot will stand in Steering or
-  Oxygen instead, because repair resolves after break and a worker in the room undoes a
-  same-round break for free. The Mimic planner scores each sabotage by impact and cover —
-  never a break it would be the only suspect for, a steal timed to cancel a vote, breaks
-  saved for when the fuse can run out — and it works honestly for a round when the heat is
+  X-ray is up, the plan keeps two funded backup repair attempts when staffing allows, banks
+  scan cells, and uses spare workers to guard Steering and Oxygen. Duties rotate each round.
+  Crew use scans more urgently near the deadline. The Mimic planner scores sabotage by
+  impact and cover, accounts for the work it gives up and scanner repair reserves, and
+  values theft that cancels a scan. It works honestly for a round when the heat is
   on. With one team sabotage per round, the Mimic bot with the least suspicion acts.
+  With separate sabotages, Mimic bots avoid choosing duplicate break targets.
 - **The talk planner** (`talk.ts`) decides who speaks. A bot decides its round when Talk
   opens and then announces exactly that, so what it says is what it does. Each bot gets at
   most two lines per Talk, the table at most one line per bot plus two, spaced a few
   seconds apart and finished well before Act so the humans have the last word. A bot with a
   strong suspect accuses it with the evidence; others agree, disagree when the evidence is
-  spread too thin, or defend themselves. A line or two lands after the report and after a
+  spread too thin, or defend themselves. Claims have cooldowns and duplicate topics are
+  limited within a discussion. A line or two lands after the report and after a
   vote result. With *Votes hidden* on, no bot ever says whom it voted for.
 - **The voice** (`voice.ts`) turns those utterances into words in one of four voices
   (analytical, joker, terse, nervous). It is deliberately role-blind: the utterance type
   has no field for a role or a real intent, so a Mimic bot's lies are chosen in the planner
   — it leans on the crew member the table already half-suspects, backs cases against crew,
   and only defends a teammate when the evidence really is thin — and its wording comes from
-  the same pool as everyone else's.
+  the same pool as everyone else's. The renderer compares alternatives with the shared
+  400-message chat history, avoids exact repeats within that history, and favors wording
+  unlike the last 16 messages. Exhausted phrases are omitted instead of repeated. Evidence
+  wording uses the public headcount, not a bot's private exclusion of itself.
 
 **Bot skill** in the lobby sets how carefully they play: *Easy* bots are noisy, forgetful
 and wander; *Normal* is the default; *Hard* bots are cold and their Mimics weigh cover more
@@ -197,6 +203,12 @@ the ship log and from each other; a table can still argue with a bot out loud, i
 will not answer. The tab follows the phase — chat while the table talks, acts and votes,
 ship log while a report is up — and a click pins one until the next phase. The game-over
 screen shows the whole conversation with every revealed Mimic's lines marked.
+
+For a reproducible check using these actual seated bots (rather than the separate balance
+model), build and run `node tools/evaluate-bots.mjs 100`. It plays 100 ten-player Balanced
+games per difficulty in `each` sabotage mode, validates actions and ballots, and saves chat
+repetition metrics and a sample conversation under `tools/results/`. Pass `team` as the
+second argument to check one sabotage per team instead.
 
 ### Dev mode
 

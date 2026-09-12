@@ -1,0 +1,301 @@
+{
+  "seed": 20260912,
+  "sampling": "Independent batches; unique game seeds across all batches and scenarios",
+  "config": {
+    "rounds": 10,
+    "repairTarget": 6,
+    "repairSuccessChance": 0.6,
+    "scanCostCells": 5,
+    "fuseLength": 3,
+    "scrapPerCargoWorker": 2,
+    "cellsPerReactorWorker": 1,
+    "reactorCapCells": 6,
+    "medbaySeats": 99,
+    "stealAmount": 2,
+    "sabotagesPerRound": "team",
+    "aliens": 3,
+    "repairCostScrap": 1,
+    "startingScrap": 2,
+    "startingCells": 0,
+    "allowSelfVote": true,
+    "phaseSeconds": {
+      "ROLES": 30,
+      "REPORT": 20,
+      "TALK": 150,
+      "ACT": 60,
+      "RESOLVE": 30,
+      "VOTE": 60
+    }
+  },
+  "batches": [
+    {
+      "crewProfile": "typical",
+      "mimicProfile": "typical",
+      "games": 10,
+      "crewWins": 10,
+      "mimicWins": 0,
+      "crewPercent": 100,
+      "ci95": [
+        72.24672001371107,
+        99.99999999999999
+      ],
+      "reasons": {
+        "ALL_MIMICS_FOUND": 10
+      },
+      "meanScans": 4.5,
+      "meanCrewScans": 1.5,
+      "meanMimicScans": 3,
+      "meanTies": 0,
+      "meanSkips": 0,
+      "meanOfflineRounds": 2.9,
+      "meanCellShortRounds": 0.5,
+      "meanSmashes": 1.9,
+      "xrayEverPercent": 100,
+      "meanFirstXray": 3
+    },
+    {
+      "crewProfile": "typical",
+      "mimicProfile": "typical",
+      "games": 20,
+      "crewWins": 13,
+      "mimicWins": 7,
+      "crewPercent": 65,
+      "ci95": [
+        43.285427668523624,
+        81.88081758989179
+      ],
+      "reasons": {
+        "ALL_MIMICS_FOUND": 13,
+        "REACHED_THE_RELAY": 7
+      },
+      "meanScans": 4.55,
+      "meanCrewScans": 2.1,
+      "meanMimicScans": 2.45,
+      "meanTies": 0,
+      "meanSkips": 0,
+      "meanOfflineRounds": 3.4,
+      "meanCellShortRounds": 0.25,
+      "meanSmashes": 1.9,
+      "xrayEverPercent": 100,
+      "meanFirstXray": 3.05
+    },
+    {
+      "crewProfile": "typical",
+      "mimicProfile": "typical",
+      "games": 50,
+      "crewWins": 41,
+      "mimicWins": 9,
+      "crewPercent": 82,
+      "ci95": [
+        69.20394632569922,
+        90.22980732976582
+      ],
+      "reasons": {
+        "ALL_MIMICS_FOUND": 41,
+        "REACHED_THE_RELAY": 8,
+        "HULL_BREACH": 1
+      },
+      "meanScans": 5.1,
+      "meanCrewScans": 2.36,
+      "meanMimicScans": 2.74,
+      "meanTies": 0,
+      "meanSkips": 0,
+      "meanOfflineRounds": 3.2,
+      "meanCellShortRounds": 0.26,
+      "meanSmashes": 1.78,
+      "xrayEverPercent": 100,
+      "meanFirstXray": 3.22
+    },
+    {
+      "crewProfile": "typical",
+      "mimicProfile": "typical",
+      "games": 100,
+      "crewWins": 86,
+      "mimicWins": 14,
+      "crewPercent": 86,
+      "ci95": [
+        77.86281178903616,
+        91.47365634006086
+      ],
+      "reasons": {
+        "ALL_MIMICS_FOUND": 86,
+        "REACHED_THE_RELAY": 14
+      },
+      "meanScans": 4.77,
+      "meanCrewScans": 1.98,
+      "meanMimicScans": 2.79,
+      "meanTies": 0,
+      "meanSkips": 0,
+      "meanOfflineRounds": 3.01,
+      "meanCellShortRounds": 0.34,
+      "meanSmashes": 1.86,
+      "xrayEverPercent": 100,
+      "meanFirstXray": 3.06
+    },
+    {
+      "crewProfile": "typical",
+      "mimicProfile": "typical",
+      "games": 1000,
+      "crewWins": 820,
+      "mimicWins": 180,
+      "crewPercent": 82,
+      "ci95": [
+        79.49777670979879,
+        84.25731074712569
+      ],
+      "reasons": {
+        "ALL_MIMICS_FOUND": 820,
+        "REACHED_THE_RELAY": 170,
+        "HULL_BREACH": 10
+      },
+      "meanScans": 4.772,
+      "meanCrewScans": 2.052,
+      "meanMimicScans": 2.72,
+      "meanTies": 0.006,
+      "meanSkips": 0,
+      "meanOfflineRounds": 3.077,
+      "meanCellShortRounds": 0.379,
+      "meanSmashes": 1.895,
+      "xrayEverPercent": 100,
+      "meanFirstXray": 3.031
+    }
+  ],
+  "sensitivity": [
+    {
+      "crewProfile": "typical",
+      "mimicProfile": "typical",
+      "games": 1000,
+      "crewWins": 820,
+      "mimicWins": 180,
+      "crewPercent": 82,
+      "ci95": [
+        79.49777670979879,
+        84.25731074712569
+      ],
+      "reasons": {
+        "ALL_MIMICS_FOUND": 820,
+        "REACHED_THE_RELAY": 170,
+        "HULL_BREACH": 10
+      },
+      "meanScans": 4.772,
+      "meanCrewScans": 2.052,
+      "meanMimicScans": 2.72,
+      "meanTies": 0.006,
+      "meanSkips": 0,
+      "meanOfflineRounds": 3.077,
+      "meanCellShortRounds": 0.379,
+      "meanSmashes": 1.895,
+      "xrayEverPercent": 100,
+      "meanFirstXray": 3.031
+    },
+    {
+      "crewProfile": "casual",
+      "mimicProfile": "casual",
+      "games": 1000,
+      "crewWins": 420,
+      "mimicWins": 580,
+      "crewPercent": 42,
+      "ci95": [
+        38.97726821587803,
+        45.083959919890845
+      ],
+      "reasons": {
+        "REACHED_THE_RELAY": 543,
+        "ALL_MIMICS_FOUND": 420,
+        "HULL_BREACH": 37
+      },
+      "meanScans": 4.309,
+      "meanCrewScans": 2.365,
+      "meanMimicScans": 1.944,
+      "meanTies": 0.048,
+      "meanSkips": 0,
+      "meanOfflineRounds": 4.445,
+      "meanCellShortRounds": 0.383,
+      "meanSmashes": 3.629,
+      "xrayEverPercent": 99.5,
+      "meanFirstXray": 3.2060301507537687
+    },
+    {
+      "crewProfile": "coordinated",
+      "mimicProfile": "coordinated",
+      "games": 1000,
+      "crewWins": 883,
+      "mimicWins": 117,
+      "crewPercent": 88.3,
+      "ci95": [
+        86.15970906192936,
+        90.14716123807713
+      ],
+      "reasons": {
+        "ALL_MIMICS_FOUND": 883,
+        "REACHED_THE_RELAY": 116,
+        "HULL_BREACH": 1
+      },
+      "meanScans": 4.758,
+      "meanCrewScans": 1.935,
+      "meanMimicScans": 2.823,
+      "meanTies": 0.001,
+      "meanSkips": 0,
+      "meanOfflineRounds": 2.908,
+      "meanCellShortRounds": 0.381,
+      "meanSmashes": 1.782,
+      "xrayEverPercent": 100,
+      "meanFirstXray": 2.954
+    },
+    {
+      "crewProfile": "casual",
+      "mimicProfile": "coordinated",
+      "games": 1000,
+      "crewWins": 181,
+      "mimicWins": 819,
+      "crewPercent": 18.099999999999998,
+      "ci95": [
+        15.837194044398084,
+        20.606953146980334
+      ],
+      "reasons": {
+        "REACHED_THE_RELAY": 807,
+        "ALL_MIMICS_FOUND": 181,
+        "HULL_BREACH": 12
+      },
+      "meanScans": 4.206,
+      "meanCrewScans": 2.939,
+      "meanMimicScans": 1.267,
+      "meanTies": 0.043,
+      "meanSkips": 0,
+      "meanOfflineRounds": 5.089,
+      "meanCellShortRounds": 0.338,
+      "meanSmashes": 3.885,
+      "xrayEverPercent": 99.7,
+      "meanFirstXray": 3.441323971915747
+    },
+    {
+      "crewProfile": "coordinated",
+      "mimicProfile": "casual",
+      "games": 1000,
+      "crewWins": 910,
+      "mimicWins": 90,
+      "crewPercent": 91,
+      "ci95": [
+        89.0658207356928,
+        92.6203850684917
+      ],
+      "reasons": {
+        "ALL_MIMICS_FOUND": 910,
+        "REACHED_THE_RELAY": 81,
+        "HULL_BREACH": 9
+      },
+      "meanScans": 4.348,
+      "meanCrewScans": 1.476,
+      "meanMimicScans": 2.872,
+      "meanTies": 0,
+      "meanSkips": 0,
+      "meanOfflineRounds": 2.803,
+      "meanCellShortRounds": 0.42,
+      "meanSmashes": 1.714,
+      "xrayEverPercent": 99.8,
+      "meanFirstXray": 2.899799599198397
+    }
+  ],
+  "totalGames": 5180
+}

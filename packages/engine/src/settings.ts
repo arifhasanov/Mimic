@@ -70,7 +70,7 @@ export function resolveSettings(input: SettingsInput, playerCount: number): Reso
     reactorCapCells: cap,
     medbaySeats: UNLIMITED,
     stealAmount: 2,
-    sabotagesPerRound: 'team',
+    sabotagesPerRound: 'each',
     aliens: aliensFor(playerCount),
     repairCostScrap: 1,
     startingScrap: 2,

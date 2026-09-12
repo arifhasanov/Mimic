@@ -748,7 +748,9 @@ export class GamesService implements OnModuleDestroy {
             rng: g.rng,
             name: (id) => playerById(g.state, id)?.name ?? 'someone',
             round: g.state.round,
+            recent: g.chat.map(message => message.text),
           });
+          if (!text) return;
           this.say(g, speaker.id, speaker.name, text);
         }, line.delayMs),
       );

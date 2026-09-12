@@ -74,8 +74,18 @@ export function planTalk(
   const said: Record<string, number> = {};
   const lines: Omit<Line, 'delayMs'>[] = [];
   const accusations: { speaker: string; target: string }[] = [];
+  const topics = new Set<string>();
   const say = (mind: BotMind, utterance: Utterance) => {
     if ((said[mind.id] ?? 0) >= perBot || lines.length >= total) return false;
+    const key = utterance.kind === 'ACCUSE'
+      ? `case:${utterance.target}:${utterance.evidence?.kind}:${utterance.evidence?.round}`
+      : utterance.kind === 'INTENT' ? `job:${utterance.room}:${utterance.why}`
+      : utterance.kind === 'AGREE' || utterance.kind === 'DISAGREE' ? `${utterance.kind}:${utterance.target}`
+      : JSON.stringify(utterance);
+    const cooldown = utterance.kind === 'ACCUSE' || utterance.kind === 'NO_LEAD' ? 4 : 2;
+    if (state.round - (mind.spoken[key] ?? -99) < cooldown || topics.has(key)) return false;
+    mind.spoken[key] = state.round;
+    topics.add(key);
     said[mind.id] = (said[mind.id] ?? 0) + 1;
     lines.push({ playerId: mind.id, utterance });
     return true;
@@ -155,22 +165,13 @@ export function planTalk(
     if (state.round > 1 && rng.chance(0.3)) say(mind, { kind: 'NO_LEAD' });
   });
 
-  // Reaction pass: anyone accused gets a word in, and one bot may call out pointless work.
+  // Reaction pass: anyone accused gets a word in.
   for (const a of accusations) {
     const mind = bots.find((m) => m.id === a.target);
     if (!mind) continue;
     const ev = evidenceAgainst(minds.find((m) => m.id === a.speaker)!, a.target);
-    const claim = players[a.target].verified ? 'verified' : ev && ev.suspects.length >= 2 ? 'notAlone' : 'wasWorking';
+    const claim = players[a.target].verified ? 'verified' : ev && (ev.witnesses ?? ev.suspects).length >= 2 ? 'notAlone' : 'wasWorking';
     say(mind, { kind: 'DEFEND', accuser: a.speaker, claim, evidence: ev });
-  }
-  if (state.xrayOnline && state.lastReport && !p.fast) {
-    const idle = state.lastReport.rooms
-      .filter((r) => r.room === 'cargo' || r.room === 'medbay')
-      .flatMap((r) => r.workers.map((name) => ({ room: r.room, id: state.players.find((x) => x.name === name)?.id })))
-      .filter((x) => x.id && x.id !== undefined);
-    const pick = idle.filter((x) => players[x.id!]?.alive)[0];
-    const speaker = order.find((m) => m.id !== pick?.id && (said[m.id] ?? 0) < perBot && m.personality !== 'nervous');
-    if (pick && speaker) say(speaker, { kind: 'WASTE', target: pick.id!, room: pick.room as RoomId });
   }
 
   return pace(lines, p, rng);
@@ -183,7 +184,7 @@ export function planReactions(minds: BotMind[], state: GameState, before: ActSna
   const r = readReport(state, before);
   const moods: { mood: Mood; room?: RoomId }[] = [];
   if (r.xrayUp) moods.push({ mood: 'xray' });
-  for (const room of r.breaks) moods.push({ mood: 'break', room });
+  for (const room of r.breaks) moods.push({ mood: room === 'medbay' ? 'smash' : r.repaired.includes(room) ? 'repaired' : 'break', room });
   for (const room of r.stolen) moods.push({ mood: 'stolen', room });
   for (const room of r.slack) moods.push({ mood: 'short', room });
   if (!moods.length && r.paid >= 2 && r.repairs === 0) moods.push({ mood: 'bad' });

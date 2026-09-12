@@ -68,6 +68,7 @@ describe('1. alien counts', () => {
 describe('2. one sabotage per round for the whole team', () => {
   it('lands exactly one break; the other Mimic works in their chosen room', () => {
     const s = makeGame(8, { mimics: ['Ann', 'Bo'] });
+    s.config.sabotagesPerRound = 'team';
     sub(s, 'Ann', 'cargo', 'steering', 'SABO');
     sub(s, 'Bo', 'medbay', 'oxygen', 'SABO');
     const { state, report } = resolveRound(s, rng());
@@ -383,6 +384,7 @@ describe('17/18. the settings resolver', () => {
   it('resolves the slider by player count', () => {
     const a = resolveSettings({ balance: 0, custom: null }, 8);
     expect([a.reactorCapCells, a.scanCostCells, a.rounds]).toEqual([3, 4, 10]);
+    expect(a.sabotagesPerRound).toBe('each');
     const b = resolveSettings({ balance: 0, custom: null }, 11);
     expect([b.reactorCapCells, b.scanCostCells, b.rounds]).toEqual([6, 5, 10]);
     const c = resolveSettings({ balance: 2, custom: null }, 12);

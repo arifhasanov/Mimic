@@ -3,6 +3,10 @@ import {
   createGame,
   createRng,
   isLegalBreak,
+  deriveIntent,
+  beginRound,
+  checkEndOfGame,
+  shouldVote,
   resolveRound,
   resolveVote,
   startGame,
@@ -21,6 +25,9 @@ import {
   planTalk,
   planVoteReactions,
   render,
+  readReport,
+  hear,
+  ownSlot,
   snapshot,
   suspects,
   tablePlan,
@@ -152,7 +159,7 @@ describe('reading the report', () => {
     expect(cal.evidence[0].suspects.sort()).toEqual([byName(s, 'Ann').id, byName(s, 'Bo').id].sort());
   });
 
-  it('calls out scrap runs after the X-ray is online', () => {
+  it('does not accuse repair reserves just because the X-ray is online', () => {
     const s = game({ mimics: ['Bo'] });
     s.xrayOnline = true;
     s.repairProgress = s.config.repairTarget;
@@ -162,7 +169,7 @@ describe('reading the report', () => {
     const after = resolveRound(s, createRng(1)).state;
     const cal = createMind(byName(s, 'Cal').id, 'analytical', 'HARD');
     absorbRound(cal, after, before, createRng(2));
-    expect(cal.evidence.some((e) => e.kind === 'IDLE' && e.suspects[0] === byName(s, 'Ann').id)).toBe(true);
+    expect(cal.evidence.some((e) => e.kind === 'IDLE')).toBe(false);
   });
 });
 
@@ -175,13 +182,13 @@ describe('the table plan', () => {
     expect(counts.steering + counts.oxygen).toBe(0);
   });
 
-  it('sends nobody to Cargo or the Med bay once the X-ray is up, and guards the pipes', () => {
+  it('funds two backup repairs once the X-ray is up, and guards the pipes', () => {
     const s = game();
     s.xrayOnline = true;
     s.repairProgress = s.config.repairTarget;
     const { counts } = tablePlan(s);
     expect(counts.cargo).toBe(0);
-    expect(counts.medbay).toBe(0);
+    expect(counts.medbay).toBe(2);
     expect(counts.steering).toBeGreaterThanOrEqual(1);
     expect(counts.oxygen).toBeGreaterThanOrEqual(1);
     expect(counts.reactor).toBeGreaterThanOrEqual(1);
@@ -198,7 +205,7 @@ describe('the table plan', () => {
     expect(slots[1]).toEqual({ room: 'oxygen', why: 'repair' });
   });
 
-  it('hard crew bots never do pointless work after the X-ray', () => {
+  it('hard crew bots follow the funded roster after the X-ray', () => {
     const s = game({ mimics: ['Gus'] });
     s.xrayOnline = true;
     s.repairProgress = s.config.repairTarget;
@@ -207,7 +214,7 @@ describe('the table plan', () => {
       decideRound(ms, s, createRng(seed));
       for (const m of ms) {
         if (byName(s, 'Gus').id === m.id) continue;
-        expect(['cargo', 'medbay']).not.toContain(m.plan!.room);
+        expect(m.plan!.room).toBe(ownSlot(m, s, tablePlan(s)).room);
       }
     }
   });
@@ -259,7 +266,7 @@ describe('the Mimic', () => {
     expect(gus.plan).toMatchObject({ room: 'reactor', focus: 'reactor', action: 'SABO' });
   });
 
-  it('smashes the Med bay from next door when the cell pool is too deep to drain', () => {
+  it('prefers other sabotage when backup workers can undo a Med bay smash', () => {
     const s = game({ mimics: ['Gus'] });
     s.xrayOnline = true;
     s.repairProgress = s.config.repairTarget;
@@ -267,8 +274,8 @@ describe('the Mimic', () => {
     const ms = minds(s);
     decideRound(ms, s, createRng(3));
     const gus = ms.find((m) => m.id === byName(s, 'Gus').id)!;
-    expect(gus.plan).toMatchObject({ focus: 'medbay', action: 'SABO' });
-    expect(gus.plan!.room).not.toBe('medbay'); // never from inside — that is the Corrupt
+    expect(gus.plan!.action).toBe('SABO');
+    expect(gus.plan!.focus).not.toBe('medbay');
   });
 });
 
@@ -427,5 +434,134 @@ describe('the voice', () => {
     expect(text).toContain('Ann');
     expect(text).toContain('Oxygen');
     expect(text).toContain('one of 2');
+  });
+
+  it('uses shared history to avoid exact echoes across personalities and all utterances', () => {
+    const recent: string[] = [];
+    const rng = createRng(45);
+    for (let pass = 0; pass < 8; pass++) for (const personality of PERSONALITIES) for (const u of samples) {
+      const text = render(u, { personality, rng, name: id => names[id] ?? 'someone', round: 3, recent });
+      if (!text) continue; // Exhausted pools should go quiet, not repeat themselves.
+      expect(recent).not.toContain(text);
+      expect(text).not.toMatch(/undefined|null|\[object|NaN/);
+      recent.push(text);
+    }
+    expect(recent.length).toBeGreaterThan(100);
+  });
+
+  it('does not describe private exclusions as public proof someone was alone', () => {
+    const text = render({ kind: 'ACCUSE', target: 'a', evidence: { ...ev, suspects: ['a'], witnesses: ['a', 'b'] } },
+      { personality: 'terse', rng: createRng(1), name: id => names[id], round: 3 });
+    expect(text).toContain('one of 2');
+    expect(text).not.toContain('only one');
+  });
+});
+
+describe('strategy regressions', () => {
+  it('detects missing cargo production even when resource scarcity hides it in repair spending', () => {
+    const s = game({ mimics: ['Bo'] });
+    s.scrap = 0;
+    const before = snapshot(s);
+    sub(s, 'Bo', 'cargo', 'steering', 'SABO');
+    sub(s, 'Ann', 'cargo');
+    for (const name of NAMES.slice(2)) sub(s, name, 'medbay');
+    const after = resolveRound(s, createRng(4)).state;
+    expect(readReport(after, before).slack).toContain('cargo');
+    expect(readReport(after, before).stolen).not.toContain('cargo');
+  });
+
+  it('does not blame reactor workers for output above its cap', () => {
+    const s = game();
+    const before = snapshot(s);
+    NAMES.forEach(name => sub(s, name, 'reactor'));
+    const after = resolveRound(s, createRng(4)).state;
+    expect(readReport(after, before).slack).toEqual([]);
+    expect(readReport(after, before).stolen).toEqual([]);
+  });
+
+  it('keeps team sabotage to one and makes non-designated Mimics actually work', () => {
+    for (let seed = 0; seed < 60; seed++) {
+      const s = game({ seed, skill: 'NORMAL' });
+      s.config.sabotagesPerRound = 'team';
+      const ms = minds(s);
+      decideRound(ms, s, createRng(seed));
+      const sabotage = ms.filter(m => byName(s, 'Gus').id === m.id || byName(s, 'Hal').id === m.id)
+        .map(m => deriveIntent(s, { playerId: m.id, ...m.plan! }, 'MIMIC'));
+      expect(sabotage.filter(a => a.intent !== 'WORK').length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('coordinates separate sabotages without duplicating break targets in each mode', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const s = game({ seed }); s.config.sabotagesPerRound = 'each';
+      const ms = minds(s); decideRound(ms, s, createRng(seed));
+      const targets = ms.filter(m => s.players.find(p => p.id === m.id)!.role === 'MIMIC')
+        .map(m => deriveIntent(s, { playerId: m.id, ...m.plan! }, 'MIMIC'))
+        .filter(i => i.intent === 'BREAK').map(i => i.target);
+      expect(new Set(targets).size).toBe(targets.length);
+    }
+  });
+
+  it('does not skip a final-round scan or scan a cleared scapegoat', () => {
+    const s = game(); s.round = s.config.rounds; s.xrayOnline = true; s.powerCells = 20;
+    const v = startVote(s);
+    expect(chooseBallot(minds(s)[0], v, createRng(2)).choice).not.toBe('SKIP');
+    const gus = minds(s).find(m => m.id === byName(s, 'Gus').id)!;
+    gus.scapegoat = byName(s, 'Ann').id;
+    byName(v, 'Ann').verified = true;
+    expect(chooseBallot(gus, v, createRng(2)).choice).not.toBe(gus.scapegoat);
+  });
+
+  it('does not amplify the same accusation twice in a round', () => {
+    const s = game(), m = minds(s)[0];
+    hear(m, 'p1', 'p2', s);
+    const first = m.suspicion.p2;
+    hear(m, 'p1', 'p2', s);
+    expect(m.suspicion.p2).toBe(first);
+    expect(m.heard.length).toBe(1);
+  });
+
+  it('reports a repaired break as repaired rather than claiming its fuse is still ticking', () => {
+    const s = game({ mimics: ['Bo'] }), before = snapshot(s);
+    sub(s, 'Bo', 'cargo', 'steering', 'SABO');
+    sub(s, 'Ann', 'steering');
+    for (const name of NAMES.slice(2)) sub(s, name, 'cargo');
+    const after = resolveRound(s, createRng(1)).state;
+    const lines = planReactions(minds(s), after, before, createRng(1), { windowMs: 3000, fast: false });
+    expect(lines.some(l => l.utterance.kind === 'REACT' && l.utterance.mood === 'break')).toBe(false);
+    expect(lines.some(l => l.utterance.kind === 'REACT' && l.utterance.mood === 'repaired')).toBe(true);
+  });
+
+  it('finishes whole games with legal actions and ballots across difficulty and visibility modes', () => {
+    for (const skill of ['EASY', 'NORMAL', 'HARD'] as const) for (let seed = 1; seed <= 12; seed++) {
+      const rng = createRng(seed);
+      let s = game({ skill, seed }); s.round = 0; s.hiddenVotes = seed % 2 === 0;
+      s.config.sabotagesPerRound = seed % 3 === 0 ? 'each' : 'team';
+      const ms = minds(s);
+      while (!s.winner) {
+        s = beginRound(s);
+        if (s.winner) break;
+        planTalk(ms, s, rng, { windowMs: 60000, fast: false }, { xrayJustUp: false });
+        const before = snapshot(s);
+        for (const m of ms.filter(m => s.players.find(p => p.id === m.id)?.alive)) s.submissions[m.id] = { playerId: m.id, ...m.plan! };
+        s = resolveRound(s, rng).state;
+        ms.forEach(m => absorbRound(m, s, before, rng));
+        if (shouldVote(s)) {
+          s = startVote(s);
+          for (let stage = 0; stage < 2; stage++) {
+            for (const id of s.vote!.voters) {
+              const cast = castBallot(s, id, chooseBallot(ms.find(m => m.id === id)!, s, rng).choice);
+              expect(cast.ok).toBe(true); s = cast.state;
+            }
+            const result = resolveVote(s); s = result.state;
+            if (result.outcome.kind !== 'RUNOFF') break;
+            s = startVote(s, 'RUNOFF', result.outcome.candidates);
+          }
+        }
+        s = checkEndOfGame(s);
+        expect(s.round).toBeLessThanOrEqual(s.config.rounds);
+      }
+      expect(['CREW', 'MIMIC']).toContain(s.winner);
+    }
   });
 });

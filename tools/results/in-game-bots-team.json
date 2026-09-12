@@ -1,0 +1,39 @@
+{
+  "seeds": "1..100 per difficulty",
+  "players": 10,
+  "balance": 0,
+  "sabotageMode": "team",
+  "note": "Production-bot smoke evaluation; not a human balance estimate or an isolated before/after comparison.",
+  "results": [
+    {
+      "skill": "EASY",
+      "games": 100,
+      "crewWins": 73,
+      "spoken": 7893,
+      "suppressed": 242,
+      "exactRepeats": 0,
+      "meanFirstXray": 3.67,
+      "xrayGames": 100
+    },
+    {
+      "skill": "NORMAL",
+      "games": 100,
+      "crewWins": 89,
+      "spoken": 6815,
+      "suppressed": 118,
+      "exactRepeats": 0,
+      "meanFirstXray": 3.6020408163265305,
+      "xrayGames": 98
+    },
+    {
+      "skill": "HARD",
+      "games": 100,
+      "crewWins": 97,
+      "spoken": 6233,
+      "suppressed": 73,
+      "exactRepeats": 0,
+      "meanFirstXray": 3.37,
+      "xrayGames": 100
+    }
+  ]
+}
