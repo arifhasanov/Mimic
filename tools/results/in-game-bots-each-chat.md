@@ -2,42 +2,51 @@
 
 Balanced, 10 players, each sabotage, seed 1.
 
-- Round 1, **Dee**: Let's divide the work: 5 to Reactor, 1 to Cargo bay, 4 to Med bay.
-- Round 1, **Cal**: You can count me in at Med bay.
-- Round 1, **Gus**: I'll take Reactor and make cells.
-- Round 1, **Ann**: My next stop is Cargo bay.
+- Round 1, **Gus**: Let's divide the work: 5 to Reactor, 1 to Cargo bay, 4 to Med bay.
+- Round 1, **Eva**: You can count me in at Med bay.
 - Round 1, **Fin**: Dibs on Steering. Bring snacks.
-- Round 1, **Cal**: Steering is fixed. Thanks, whoever that was.
-- Round 1, **Bo**: Oxygen needs a repair assignment before its fuse expires.
-- Round 2, **Dee**: I haven't ruled out Ann. the cargo bay produced less than its staffing suggested last round, and Ann was one of the 2 in it.
-- Round 2, **Ann**: My case for checking Hal is this: the cargo bay produced less than its staffing suggested last round, and Hal was one of the 2 in it.
-- Round 2, **Ivy**: Before we choose a scan, remember: the reactor produced less than its staffing suggested last round, and Gus was one of the 3 in it.
-- Round 2, **Gus**: I'm looking at Dee: the reactor produced less than its staffing suggested last round, and Dee was one of the 3 in it.
-- Round 2, **Ann**: That evidence includes other people too. What makes me your first choice?
-- Round 2, **Hal**: It wasn't me, Ann, honestly. I was just doing my job.
-- Round 2, **Gus**: Ivy, I wasn't the only one in reach. 3 of us could have done it.
-- Round 2, **Dee**: It wasn't me, Gus, honestly. I was just doing my job.
-- Round 2, **Gus**: Put Steering on the repair list. We can't leave that fuse running.
-- Round 2, **Hal**: Someone in the cargo bay didn't contribute the expected production.
-- Round 3, **Cal**: Can we check this detail? the cargo bay produced less than its staffing suggested in round 1, and Ann was one of the 2 in it.
-- Round 3, **Bo**: Not to point fingers, but I'm pointing: the cargo bay produced less than its staffing suggested last round, and Ann was one of the 3 in it.
-- Round 3, **Dee**: Bo has a point about Ann.
-- Round 3, **Ann**: the cargo bay produced less than its staffing suggested last round, and Dee was one of the 3 in it. That is the strongest lead we have.
-- Round 3, **Fin**: I'd support checking Dee next.
-- Round 3, **Hal**: What separates Dee from the other possible suspects?
-- Round 3, **Ann**: Cal, I wasn't the only one in reach. 2 of us could have done it.
-- Round 3, **Dee**: Ann, I wasn't the only one in reach. 3 of us could have done it.
-- Round 3, **Cal**: Scanner ready. Let's look at our cells and shortlist.
-- Round 3, **Fin**: Oxygen, broken. Great teamwork, whoever did that.
-- Round 4, **Dee**: Here's how I'd split the jobs: 5 to Reactor, 1 to Cargo bay, 2 to Med bay, 1 to Steering, 1 to Oxygen.
-- Round 4, **Dee**: I haven't ruled out Gus. the reactor produced less than its staffing suggested last round, and Gus was one of the 2 in it.
-- Round 4, **Ann**: That makes Gus worth discussing.
-- Round 4, **Bo**: My case for checking Dee is this: the reactor produced less than its staffing suggested last round, and Dee was one of the 2 in it.
-- Round 4, **Hal**: I don't want to be wrong, but the cargo bay produced less than its staffing suggested in round 1, and Ann was one of the 2 in it.
-- Round 4, **Gus**: Dee, I wasn't the only one in reach. 2 of us could have done it.
-- Round 4, **Ann**: Hal, I wasn't the only one in reach. 2 of us could have done it.
-- Round 4, **Hal**: Reactor has been patched up.
-- Round 4, **Eva**: Production in the cargo bay doesn't match its headcount.
-- Round 4, **Dee**: We kept the cells, but used a round without learning a role.
-- Round 4, **Eva**: I skipped. A scan on a guess would burn cells we can't spare.
-- Round 4, **Fin**: I wasn't ready to commit those cells.
+- Round 1, **Hal**: I'll take Reactor and bank cells for a scan.
+- Round 1, **Hal**: Oxygen just broke. The fuse is ticking. Someone fix it, please.
+- Round 1, **Gus**: The reactor produced less than its staffing suggested. Someone in there was not working.
+- Round 2, **Eva**: By the numbers: 2 to Reactor, 2 to Cargo bay, 5 to Med bay, 1 to Oxygen. That keeps scrap and attempts in step.
+- Round 2, **Jun**: Heading to Oxygen.
+- Round 2, **Hal**: I'll cover Med bay this round.
+- Round 2, **Dee**: My next stop is Cargo bay.
+- Round 2, **Ivy**: I've got the reactor assignment.
+- Round 2, **Fin**: Steering needs a repair assignment before its fuse expires.
+- Round 2, **Eva**: Someone in the Med bay did not pay for an attempt.
+- Round 3, **Dee**: No useful accusation from me right now.
+- Round 3, **Eva**: Reactor for me — keep the Reactor at cap.
+- Round 3, **Ivy**: Taking Med bay to keep repairs moving.
+- Round 3, **Ivy**: X-ray online. Now we can actually check people.
+- Round 3, **Jun**: Oxygen is fixed. Thanks, whoever that was.
+- Round 3, **Cal**: You have my scan result now. Let's use it.
+- Round 3, **Dee**: I voted Cal because when Oxygen broke this round, 9 people were in reach; output clears 5 of them, and Cal is one of the 4 left.
+- Round 3, **Ann**: Cal was my pick on that ballot: the Med bay paid for fewer repair attempts than it had people this round, and Cal was one of the 3 in it.
+- Round 4, **Ann**: An online scanner can still be smashed. Budget for repairs: 5 to Reactor, 1 to Cargo bay, 2 to Med bay, 2 to Steering.
+- Round 4, **Ann**: Before we choose a scan, remember: the Med bay paid for fewer repair attempts than it had people last round, and Ivy was one of the 3 in it, and was one of 5 in reach of Oxygen when it broke in round 1.
+- Round 4, **Bo**: Before we choose a scan, remember: when Oxygen broke last round, 9 people were in reach; output clears 5 of them, and Ivy is one of the 4 left, and was one of 5 in reach of Oxygen when it broke in round 1.
+- Round 4, **Hal**: Heading to Steering.
+- Round 4, **Gus**: Agreed. Ivy.
+- Round 4, **Ivy**: That evidence includes other people too. What makes me your first choice?
+- Round 4, **Ivy**: Bo, I wasn't the only one in reach. 4 of us could have done it.
+- Round 4, **Gus**: Oxygen needs a repair assignment before its fuse expires.
+- Round 4, **Hal**: Oh thank goodness, Ivy was a Mimic.
+- Round 4, **Fin**: Ivy was my pick on that ballot: when Oxygen broke last round, 9 people were in reach; output clears 5 of them, and Ivy is one of the 4 left.
+- Round 4, **Dee**: My ballot was Ann. When Oxygen broke this round, 7 people were in reach; output clears 4 of them, and Ann is one of the 3 left.
+- Round 5, **Jun**: Not to point fingers, but I'm pointing: when Oxygen broke last round, 7 people were in reach; output clears 4 of them, and Dee is one of the 3 left, and was one of 5 in reach of Oxygen when it broke in round 1.
+- Round 5, **Dee**: Reactor, I suppose. Unless someone needs me elsewhere.
+- Round 5, **Hal**: I've got the med bay assignment.
+- Round 5, **Dee**: It wasn't me, Jun, honestly. I was just doing my job.
+- Round 5, **Fin**: Steering, broken. Great teamwork, whoever did that.
+- Round 5, **Fin**: Hal is out. Let's revisit the evidence with that result in mind.
+- Round 5, **Ann**: I voted Dee because when Oxygen broke last round, 7 people were in reach; output clears 4 of them, and Dee is one of the 3 left.
+- Round 5, **Jun**: I voted Hal because Hal was one of 2 people next to Steering when Steering broke this round.
+- Round 6, **Bo**: Before we choose a scan, remember: when Oxygen broke in round 4, 7 people were in reach; output clears 4 of them, and Dee is one of the 3 left, and was one of 5 in reach of Oxygen when it broke in round 1.
+- Round 6, **Jun**: Seconded. Dee has been suspiciously helpful.
+- Round 6, **Dee**: It wasn't me, Bo, honestly. I was just doing my job.
+- Round 6, **Dee**: Oxygen is broken. Someone gets on that next round.
+- Round 6, **Cal**: Production in the reactor doesn't match its headcount.
+- Round 6, **Fin**: Dee, a Mimic! I liked you better as a person.
+- Round 6, **Ann**: Dee was my pick on that ballot: when Oxygen broke in round 4, 7 people were in reach; output clears 4 of them, and Dee is one of the 3 left.
+- Round 6, **Jun**: My ballot was Dee. When Oxygen broke in round 4, 7 people were in reach; output clears 4 of them, and Dee is one of the 3 left.

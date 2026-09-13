@@ -18,7 +18,11 @@ import {
 import {
   PERSONALITIES,
   absorbRound,
+  absorbVote,
+  assess,
+  baseRate,
   chooseBallot,
+  heat,
   createMind,
   decideRound,
   planReactions,
@@ -26,6 +30,7 @@ import {
   planVoteReactions,
   render,
   readReport,
+  evidenceListAgainst,
   hear,
   ownSlot,
   snapshot,
@@ -100,7 +105,7 @@ describe('reading the report', () => {
     absorbRound(ann, after, before, createRng(2));
     const top = suspects(ann, after)[0];
     expect(top.id).toBe(byName(s, 'Bo').id);
-    expect(top.score).toBeCloseTo(4);
+    expect(top.score).toBeGreaterThan(0.85);
     expect(ann.evidence[0]).toMatchObject({ kind: 'BREAK', room: 'oxygen', suspects: [byName(s, 'Bo').id] });
   });
 
@@ -119,14 +124,16 @@ describe('reading the report', () => {
     const ann = createMind(byName(s, 'Ann').id, 'terse', 'HARD');
     absorbRound(ann, after, before, createRng(2));
     const ranked = suspects(ann, after);
+    // The break points at the Reactor and the Med bay; the missing cell points at the Reactor
+    // alone, and Ann knows it was not her — so Bo explains both lists on his own.
     expect(ranked[0].id).toBe(byName(s, 'Bo').id);
-    expect(ranked[0].score).toBeCloseTo(2 + 3); // half the break, and all of the missing cell
+    expect(ranked[0].score).toBeGreaterThan(0.9);
     expect(ranked[1].id).toBe(byName(s, 'Cal').id);
-    expect(ranked[1].score).toBeCloseTo(2); // half the break — Ann knows it was not her
-    expect(ranked[2].score).toBe(0);
+    expect(ranked[1].score).toBeLessThan(ranked[0].score);
+    expect(ranked[2].score).toBeLessThan(ranked[1].score + 0.01);
     expect(ann.evidence.map((e) => e.kind).sort()).toEqual(['BREAK', 'SLACK']);
-    // ...but she knows how it looks from the outside.
-    expect(ann.suspicion[ann.id]).toBeCloseTo(4 / 3 + 3 / 2);
+    // ...but she knows how it looks from the outside: to the table she is on both lists too.
+    expect(heat(ann, after)).toBeGreaterThan(baseRate(after));
   });
 
   it('tells a theft from a worker who simply did not work', () => {
@@ -599,6 +606,277 @@ describe('strategy regressions', () => {
         expect(s.round).toBeLessThanOrEqual(s.config.rounds);
       }
       expect(['CREW', 'MIMIC']).toContain(s.winner);
+    }
+  });
+});
+
+describe('careful reading', () => {
+  it('clears everyone whose room produced in full, so a break pins the one whose output fell short', () => {
+    // Bo breaks Steering from the Cargo bay. Ann and Cal are also in Cargo, Dee and Eva in
+    // the Med bay (a launch room too). Cargo comes up one worker short; the Med bay pays
+    // for every attempt it has people for, which clears Dee and Eva.
+    const s = game({ mimics: ['Bo'] });
+    s.scrap = 6;
+    const before = snapshot(s);
+    sub(s, 'Bo', 'cargo', 'steering', 'SABO');
+    sub(s, 'Ann', 'cargo');
+    sub(s, 'Cal', 'cargo');
+    sub(s, 'Dee', 'medbay');
+    sub(s, 'Eva', 'medbay');
+    for (const n of ['Fin', 'Gus', 'Hal']) sub(s, n, 'reactor');
+    const after = resolveRound(s, createRng(1)).state;
+    const r = readReport(after, before);
+    expect(r.breaks).toEqual(['steering']);
+    expect(r.slack).toEqual(['cargo']);
+    expect(r.cleared.sort()).toEqual([byName(s, 'Dee').id, byName(s, 'Eva').id, byName(s, 'Fin').id, byName(s, 'Gus').id, byName(s, 'Hal').id].sort());
+    const fin = createMind(byName(s, 'Fin').id, 'analytical', 'HARD');
+    absorbRound(fin, after, before, createRng(2));
+    const brk = fin.evidence.find((e) => e.kind === 'BREAK')!;
+    expect(brk.suspects.sort()).toEqual([byName(s, 'Ann').id, byName(s, 'Bo').id, byName(s, 'Cal').id].sort());
+    expect(brk.cleared!.sort()).toEqual([byName(s, 'Dee').id, byName(s, 'Eva').id].sort());
+    const ranked = suspects(fin, after);
+    expect(ranked.slice(0, 3).map((x) => x.id).sort()).toEqual(brk.suspects.sort());
+    // The second Mimic could be anyone, so the cleared five sit at the base rate, not zero.
+    expect(ranked[3].score).toBeLessThan(0.3);
+    expect(ranked[2].score).toBeGreaterThan(ranked[3].score + 0.1);
+  });
+
+  it('reads a rise in Infection with nothing visible as a corrupted repair', () => {
+    const s = game({ mimics: ['Bo'] });
+    s.scrap = 8;
+    s.config.medbaySeats = 3; // the seat limit hides the missing attempt
+    const before = snapshot(s);
+    sub(s, 'Bo', 'medbay', 'medbay', 'SABO');
+    for (const n of ['Ann', 'Cal', 'Dee']) sub(s, n, 'medbay');
+    for (const n of ['Eva', 'Fin', 'Gus', 'Hal']) sub(s, n, 'reactor');
+    const after = resolveRound(s, createRng(1)).state;
+    expect(after.infection).toBe(2);
+    const r = readReport(after, before);
+    expect(r.corrupt).toBe(true);
+    expect(r.slack).toEqual([]);
+    const eva = createMind(byName(s, 'Eva').id, 'terse', 'HARD');
+    absorbRound(eva, after, before, createRng(2));
+    expect(eva.evidence.map((e) => e.kind)).toEqual(['CORRUPT']);
+    expect(eva.evidence[0].suspects.sort()).toEqual(['Ann', 'Bo', 'Cal', 'Dee'].map((n) => byName(s, n).id).sort());
+  });
+
+  it('spots a Med bay that paid for fewer attempts than it had people', () => {
+    const s = game({ mimics: ['Bo'] });
+    s.scrap = 8;
+    const before = snapshot(s);
+    sub(s, 'Bo', 'medbay', 'steering', 'SABO'); // a break launched from the Med bay
+    for (const n of ['Ann', 'Cal']) sub(s, n, 'medbay');
+    for (const n of ['Dee', 'Eva', 'Fin', 'Gus', 'Hal']) sub(s, n, 'reactor');
+    const after = resolveRound(s, createRng(1)).state;
+    const r = readReport(after, before);
+    expect(r.slack).toEqual(['medbay']);
+    expect(r.breaks).toEqual(['steering']);
+    const dee = createMind(byName(s, 'Dee').id, 'terse', 'HARD');
+    absorbRound(dee, after, before, createRng(2));
+    const ranked = suspects(dee, after);
+    expect(ranked.slice(0, 3).map((x) => x.id).sort()).toEqual(['Ann', 'Bo', 'Cal'].map((n) => byName(s, n).id).sort());
+  });
+
+  it('takes a failed repair round with falling Infection as bad luck, not sabotage', () => {
+    const s = game({ mimics: ['Bo'] });
+    s.scrap = 8;
+    s.infection = 4;
+    const before = snapshot(s);
+    for (const n of NAMES) sub(s, n, 'medbay');
+    const after = resolveRound(s, createRng(1)).state;
+    expect(after.infection).toBe(3);
+    const ann = createMind(byName(s, 'Ann').id, 'terse', 'HARD');
+    absorbRound(ann, after, before, createRng(2));
+    expect(ann.evidence).toEqual([]);
+  });
+
+  it('is forgetful on EASY and cold on HARD about the same evidence', () => {
+    const s = game({ mimics: ['Bo'] });
+    const before = snapshot(s);
+    sub(s, 'Bo', 'oxygen', 'oxygen', 'SABO');
+    for (const n of NAMES.filter((x) => x !== 'Bo')) sub(s, n, 'cargo');
+    const after = resolveRound(s, createRng(1)).state;
+    const hard = createMind(byName(s, 'Ann').id, 'terse', 'HARD');
+    const easy = createMind(byName(s, 'Ann').id, 'terse', 'EASY');
+    absorbRound(hard, after, before, createRng(2));
+    absorbRound(easy, after, before, createRng(2));
+    expect(suspects(hard, after)[0].score).toBeGreaterThan(suspects(easy, after)[0].score);
+    after.round = 8;
+    expect(suspects(hard, after)[0].id).toBe(byName(s, 'Bo').id);
+    expect(suspects(easy, after)[0].score).toBeLessThan(0.5);
+  });
+
+  it('intersects two thin lists from different rounds into one strong lead', () => {
+    // Round 1: Oxygen breaks with Bo and Cal in reach. Round 2: cells go missing with Bo and
+    // Dee in the Reactor. Only Bo explains both.
+    const s = game({ mimics: ['Bo'] });
+    const before1 = snapshot(s);
+    sub(s, 'Bo', 'oxygen', 'oxygen', 'SABO');
+    sub(s, 'Cal', 'oxygen');
+    for (const n of ['Ann', 'Dee', 'Eva', 'Fin', 'Gus', 'Hal']) sub(s, n, 'cargo');
+    let after = resolveRound(s, createRng(1)).state;
+    const ann = createMind(byName(s, 'Ann').id, 'terse', 'HARD');
+    absorbRound(ann, after, before1, createRng(2));
+    after.round = 2; after.powerCells = 3; after.submissions = {};
+    after.rooms.oxygen.broken = false; after.rooms.oxygen.fuse = null;
+    const before2 = snapshot(after);
+    sub(after, 'Bo', 'reactor', 'reactor', 'SABO');
+    sub(after, 'Dee', 'reactor');
+    for (const n of ['Ann', 'Cal', 'Eva', 'Fin', 'Gus', 'Hal']) sub(after, n, 'cargo');
+    after = resolveRound(after, createRng(3)).state;
+    absorbRound(ann, after, before2, createRng(4));
+    const ranked = suspects(ann, after);
+    expect(ranked[0].id).toBe(byName(s, 'Bo').id);
+    expect(ranked[0].score).toBeGreaterThan(0.75);
+    expect(ranked[1].score).toBeLessThan(0.4);
+    expect(evidenceListAgainst(ann, byName(s, 'Bo').id).map((e) => e.round)).toEqual([2, 1]);
+  });
+});
+
+describe('reading the ballots', () => {
+  const votedGame = () => {
+    const s = game({ mimics: ['Gus', 'Hal'] });
+    s.xrayOnline = true;
+    s.powerCells = 6;
+    return s;
+  };
+
+  it('treats every public ballot as an accusation and follows the table', () => {
+    let v = startVote(votedGame());
+    const dee = byName(v, 'Dee').id;
+    for (const n of ['Ann', 'Bo', 'Cal']) v = castBallot(v, byName(v, n).id, dee).state;
+    for (const n of ['Dee', 'Eva', 'Fin', 'Gus', 'Hal']) v = castBallot(v, byName(v, n).id, 'SKIP').state;
+    v = resolveVote(v).state;
+    expect(v.vote!.result!.kind).toBe('SKIP');
+    const eva = createMind(byName(v, 'Eva').id, 'analytical', 'HARD');
+    absorbVote(eva, v, createRng(1));
+    expect(eva.evidence).toEqual([expect.objectContaining({ kind: 'VOTED', count: 3, suspects: [dee] })]);
+    expect(suspects(eva, v)[0].id).toBe(dee);
+    v.hiddenVotes = true;
+    const fin = createMind(byName(v, 'Fin').id, 'analytical', 'HARD');
+    absorbVote(fin, v, createRng(1));
+    expect(fin.evidence).toEqual([]);
+  });
+
+  it('clears the people a caught Mimic voted against, and marks whoever spoke up for them', () => {
+    let v = startVote(votedGame());
+    const gus = byName(v, 'Gus').id, dee = byName(v, 'Dee').id, cal = byName(v, 'Cal').id;
+    // Gus, the Mimic, votes Dee; Cal speaks up for Gus and votes Dee too; everyone else votes Gus.
+    for (const n of NAMES) v = castBallot(v, byName(v, n).id, n === 'Gus' || n === 'Cal' ? dee : gus).state;
+    const ann = createMind(byName(v, 'Ann').id, 'analytical', 'HARD');
+    hear(ann, cal, gus, v, 'defend');
+    v = resolveVote(v).state;
+    expect(v.vote!.result).toMatchObject({ kind: 'SCAN', role: 'MIMIC' });
+    absorbVote(ann, v, createRng(1));
+    expect(ann.suspicion[dee]).toBeLessThan(-1);
+    expect(ann.suspicion[cal]).toBeGreaterThan(0.5);
+    const ranked = suspects(ann, v);
+    expect(ranked[0].id).toBe(cal);
+    expect(ranked[ranked.length - 1].id).toBe(dee);
+  });
+
+  it('joins the table on a near-equal lead instead of splitting the crew vote', () => {
+    const s = votedGame();
+    const v = startVote(s);
+    const ann = createMind(byName(s, 'Ann').id, 'analytical', 'NORMAL');
+    ann.suspicion[byName(s, 'Dee').id] = 2.2;
+    ann.suspicion[byName(s, 'Eva').id] = 2.0;
+    expect(chooseBallot(ann, v, createRng(1)).choice).toBe(byName(s, 'Dee').id);
+    for (const n of ['Bo', 'Cal', 'Fin']) hear(ann, byName(s, n).id, byName(s, 'Eva').id, v);
+    expect(chooseBallot(ann, v, createRng(1)).choice).toBe(byName(s, 'Eva').id);
+  });
+});
+
+describe('Mimic restraint', () => {
+  it('lets one Mimic spread Infection while the others work, even with separate sabotages', () => {
+    let acted = 0, rounds = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const s = game({ mimics: ['Gus', 'Hal'], seed, skill: 'HARD' });
+      s.config.sabotagesPerRound = 'each';
+      s.round = 3;
+      const ms = minds(s);
+      decideRound(ms, s, createRng(seed));
+      const sabotage = ['Gus', 'Hal']
+        .map((n) => ms.find((m) => m.id === byName(s, n).id)!)
+        .map((m) => deriveIntent(s, { playerId: m.id, ...m.plan! }, 'MIMIC'))
+        .filter((i) => i.intent !== 'WORK').length;
+      acted += sabotage;
+      rounds += 1;
+    }
+    expect(acted).toBeGreaterThan(0);
+    expect(acted / rounds).toBeLessThanOrEqual(1.1);
+  });
+
+  it('both act when a second sabotage would cancel a scan', () => {
+    const s = game({ mimics: ['Gus', 'Hal'], skill: 'HARD' });
+    s.config.sabotagesPerRound = 'each';
+    s.xrayOnline = true;
+    s.repairProgress = s.config.repairTarget;
+    s.powerCells = 1;
+    const ms = minds(s);
+    decideRound(ms, s, createRng(3));
+    const plans = ['Gus', 'Hal'].map((n) => ms.find((m) => m.id === byName(s, n).id)!.plan!);
+    expect(plans.some((p) => p.room === 'reactor' && p.focus === 'reactor' && p.action === 'SABO')).toBe(true);
+  });
+
+  it('prefers a sabotage its own room cannot betray over one that leaves it alone on a list', () => {
+    // Everyone but Gus is in the Reactor at cap; a break from the Cargo bay would show the bay
+    // one worker short with Gus alone in it. Standing in Oxygen leaves no such trace.
+    const s = game({ mimics: ['Gus'], skill: 'HARD' });
+    s.xrayOnline = true;
+    s.repairProgress = s.config.repairTarget;
+    s.powerCells = 20; // no scan to deny
+    const ms = minds(s);
+    const gus = ms.find((m) => m.id === byName(s, 'Gus').id)!;
+    let cargoBreaks = 0, total = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      decideRound(ms, s, createRng(seed));
+      if (gus.plan!.action !== 'SABO') continue;
+      total += 1;
+      if (gus.plan!.room === 'cargo') cargoBreaks += 1;
+    }
+    expect(total).toBeGreaterThan(0);
+    expect(cargoBreaks).toBe(0);
+  });
+
+  it('does not bother hiding while the scanner is dark', () => {
+    const s = game({ mimics: ['Gus'], skill: 'HARD' });
+    const ms = minds(s);
+    const gus = ms.find((m) => m.id === byName(s, 'Gus').id)!;
+    gus.suspicion[gus.id] = 3;
+    decideRound(ms, s, createRng(1));
+    expect(gus.plan!.action).toBe('SABO');
+    expect(gus.layLow).toBe(0);
+  });
+});
+
+describe('the roster', () => {
+  it('hands the unauditable guard posts to verified crew', () => {
+    const s = game();
+    s.xrayOnline = true;
+    s.repairProgress = s.config.repairTarget;
+    byName(s, 'Cal').verified = true;
+    const plan = tablePlan(s);
+    expect(plan.slots.some((x) => x.why === 'guard')).toBe(true);
+    for (let round = 1; round <= 6; round++) {
+      s.round = round;
+      const cal = createMind(byName(s, 'Cal').id, 'terse', 'HARD');
+      expect(ownSlot(cal, s, plan).why).toBe('guard');
+      const rooms = NAMES.map((n) => ownSlot(createMind(byName(s, n).id, 'terse', 'HARD'), s, plan).room);
+      expect(rooms.sort()).toEqual(plan.slots.map((x) => x.room).sort());
+    }
+  });
+});
+
+describe('accusations need grounds', () => {
+  it('never names anyone, crew or Mimic, without a piece of evidence to cite', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const s = game({ seed, skill: 'NORMAL' });
+      const ms = minds(s);
+      // Plenty of hearsay, no evidence at all.
+      for (const m of ms) for (const other of ms) if (other !== m) hear(m, other.id, byName(s, 'Ann').id, s);
+      const lines = planTalk(ms, s, createRng(seed), { windowMs: 60_000, fast: false }, { xrayJustUp: false });
+      for (const l of lines) if (l.utterance.kind === 'ACCUSE') expect(l.utterance.evidence).not.toBeNull();
     }
   });
 });

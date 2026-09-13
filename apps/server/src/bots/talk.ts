@@ -1,7 +1,9 @@
 import { livingPlayers, type GameState, type Rng, type RoomId } from '@mimic/engine';
 import {
+  HARD,
   decideRound,
   evidenceAgainst,
+  evidenceListAgainst,
   hear,
   readReport,
   suspects,
@@ -9,7 +11,12 @@ import {
   tune,
   type ActSnapshot,
   type BotMind,
+  type Evidence,
 } from './brain';
+
+/** How many people the table can see on a list: the public reach minus those publicly cleared. */
+export const publicCount = (e: Evidence | null) =>
+  e ? (e.witnesses ?? e.suspects).filter((id) => !(e.cleared ?? []).includes(id)).length : 0;
 import type { Mood, Utterance } from './voice';
 
 /**
@@ -91,7 +98,8 @@ export function planTalk(
     return true;
   };
   const accuse = (mind: BotMind, target: string) => {
-    if (!say(mind, { kind: 'ACCUSE', target, evidence: evidenceAgainst(mind, target) })) return;
+    const [evidence = null, also = null] = evidenceListAgainst(mind, target, 2);
+    if (!say(mind, { kind: 'ACCUSE', target, evidence, also })) return;
     mind.accused[target] = state.round;
     accusations.push({ speaker: mind.id, target });
     for (const other of bots) hear(other, mind.id, target, state);
@@ -116,7 +124,8 @@ export function planTalk(
     if (isMimic) target = mind.scapegoat;
     else {
       const top = suspects(mind, state)[0];
-      if (top && top.score >= t.accuseAt) target = top.id;
+      // Name someone only with something to point at; a hunch is what AGREE is for.
+      if (top && top.score >= t.accuseAt && evidenceAgainst(mind, top.id)) target = top.id;
     }
     const repeat = target !== null && state.round - (mind.accused[target] ?? -9) < 2;
     const pileOn = target !== null && accusations.filter((a) => a.target === target).length >= 2;
@@ -128,9 +137,14 @@ export function planTalk(
     const latest = accusations.filter((a) => a.speaker !== mind.id).pop();
     if (latest) {
       const onTeammate = teammates.includes(latest.target);
-      const mine = mind.suspicion[latest.target] ?? 0;
+      const mine = suspects(mind, state).find((x) => x.id === latest.target)?.score ?? 0;
       const ev = evidenceAgainst(mind, latest.target);
-      const thin = !ev || ev.suspects.length >= 3;
+      const thin = !ev || !HARD[ev.kind] || ev.suspects.length >= 3;
+      const disagree = () => {
+        if (!say(mind, { kind: 'DISAGREE', speaker: latest.speaker, target: latest.target })) return false;
+        for (const other of bots) hear(other, mind.id, latest.target, state, 'defend');
+        return true;
+      };
       if (isMimic) {
         // Backing a case against crew is free; defending a teammate is only safe when the
         // evidence really is thin, and even then not every time.
@@ -139,16 +153,16 @@ export function planTalk(
           return;
         }
         if (onTeammate && thin && rng.chance(0.5)) {
-          say(mind, { kind: 'DISAGREE', speaker: latest.speaker, target: latest.target });
+          disagree();
           return;
         }
       } else if (latest.target !== mind.id) {
-        if (mine >= t.accuseAt * 0.5) {
+        if (mine >= t.accuseAt * 0.7) {
           say(mind, { kind: 'AGREE', speaker: latest.speaker, target: latest.target });
           return;
         }
-        if (mine <= 0.1 && thin && rng.chance(0.6)) {
-          say(mind, { kind: 'DISAGREE', speaker: latest.speaker, target: latest.target });
+        if (mine <= t.accuseAt * 0.3 && thin && rng.chance(0.6)) {
+          disagree();
           return;
         }
       }
@@ -170,7 +184,7 @@ export function planTalk(
     const mind = bots.find((m) => m.id === a.target);
     if (!mind) continue;
     const ev = evidenceAgainst(minds.find((m) => m.id === a.speaker)!, a.target);
-    const claim = players[a.target].verified ? 'verified' : ev && (ev.witnesses ?? ev.suspects).length >= 2 ? 'notAlone' : 'wasWorking';
+    const claim = players[a.target].verified ? 'verified' : publicCount(ev) >= 2 ? 'notAlone' : 'wasWorking';
     say(mind, { kind: 'DEFEND', accuser: a.speaker, claim, evidence: ev });
   }
 
@@ -186,8 +200,9 @@ export function planReactions(minds: BotMind[], state: GameState, before: ActSna
   if (r.xrayUp) moods.push({ mood: 'xray' });
   for (const room of r.breaks) moods.push({ mood: room === 'medbay' ? 'smash' : r.repaired.includes(room) ? 'repaired' : 'break', room });
   for (const room of r.stolen) moods.push({ mood: 'stolen', room });
-  for (const room of r.slack) moods.push({ mood: 'short', room });
-  if (!moods.length && r.paid >= 2 && r.repairs === 0) moods.push({ mood: 'bad' });
+  if (r.corrupt) moods.push({ mood: 'corrupt', room: 'medbay' });
+  for (const room of r.slack) if (!(room === 'medbay' && r.corrupt)) moods.push({ mood: 'short', room });
+  if (!moods.length && r.paid >= 2 && r.repairs === 0) moods.push({ mood: r.effective ? 'bad' : 'unlucky' });
   if (!moods.length && r.repaired.length) moods.push({ mood: 'repaired', room: r.repaired[0] });
   if (!moods.length && r.repairs >= 2 && rng.chance(0.4)) moods.push({ mood: 'good' });
   if (!moods.length && rng.chance(0.2)) moods.push({ mood: 'quiet' });

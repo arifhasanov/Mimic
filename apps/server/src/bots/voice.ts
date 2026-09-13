@@ -6,12 +6,12 @@ import type { BallotReason, Evidence, Personality, Why } from './brain';
  * plan; there is no field for a role, an intent or a real target anywhere in here, so the
  * voice cannot leak what it never sees. Crew and Mimic bots draw from the same pool.
  */
-export type Mood = 'break' | 'smash' | 'stolen' | 'short' | 'xray' | 'good' | 'bad' | 'quiet' | 'repaired';
+export type Mood = 'break' | 'smash' | 'stolen' | 'short' | 'corrupt' | 'xray' | 'good' | 'bad' | 'unlucky' | 'quiet' | 'repaired';
 
 export type Utterance =
   | { kind: 'PLAN'; counts: Record<RoomId, number>; xrayJustUp: boolean }
   | { kind: 'INTENT'; room: RoomId; why: Why }
-  | { kind: 'ACCUSE'; target: string; evidence: Evidence | null }
+  | { kind: 'ACCUSE'; target: string; evidence: Evidence | null; also?: Evidence | null }
   | { kind: 'DEFEND'; accuser: string; claim: 'notAlone' | 'wasWorking' | 'verified'; evidence: Evidence | null }
   | { kind: 'AGREE'; speaker: string; target: string }
   | { kind: 'DISAGREE'; speaker: string; target: string }
@@ -34,27 +34,66 @@ type T = (u: any, c: VoiceContext) => string;
 type Pool = Partial<Record<Personality | 'any', T[]>>;
 
 const room = (r: RoomId | undefined) => (r ? ROOM_NAMES[r] : 'somewhere');
+const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+/** How many people the table can see on a list: the whole reach minus anyone cleared by output. */
+const seen = (e: Evidence | null) => (e ? (e.witnesses ?? e.suspects).length - (e.cleared ?? []).length : 0);
 const lower = (r: RoomId | undefined) => room(r).toLowerCase();
 
-/** The evidence, in words a human at the table would use. */
-export function describeEvidence(e: Evidence | null, target: string, c: VoiceContext): string {
+/**
+ * The evidence, in words a human at the table would use. Counts are public: the whole reach,
+ * minus anyone whose room's output cleared them. `brief` is for a second piece tacked onto
+ * a first: shorter, and it does not repeat the name.
+ */
+export function describeEvidence(e: Evidence | null, target: string, c: VoiceContext, brief = false): string {
   const T = c.name(target);
   if (!e) return `${T} just feels off to me`;
-  const n = (e.witnesses ?? e.suspects).length;
+  const reach = (e.witnesses ?? e.suspects).length;
+  const cleared = (e.cleared ?? []).length;
+  const n = reach - cleared;
   const when = e.round === c.round ? 'this round' : e.round === c.round - 1 ? 'last round' : `in round ${e.round}`;
+  const thing = e.room === 'reactor' ? 'cells' : 'scrap';
+  if (brief) {
+    switch (e.kind) {
+      case 'BREAK':
+        return e.room === 'medbay'
+          ? `${n <= 1 ? 'the only one' : `one of ${n}`} not cleared by output when the scanner was smashed ${when}`
+          : `${n <= 1 ? 'the only one' : `one of ${n}`} in reach of ${room(e.room)} when it broke ${when}`;
+      case 'STEAL': return `in the ${lower(e.room)} when ${thing} went missing ${when}`;
+      case 'SLACK': return e.room === 'medbay' ? `in a Med bay that paid for too few attempts ${when}` : `in a ${lower(e.room)} that came up short ${when}`;
+      case 'CORRUPT': return `in the Med bay when a repair was corrupted ${when}`;
+      case 'VOTED': return `drew ${e.count ?? 'several'} ballot${e.count === 1 ? '' : 's'} ${when}`;
+      case 'SHIELD': return `did not vote for the Mimic we caught`;
+      case 'PUSHED': return `pushed a scan onto crew before`;
+      default: return `looked odd ${when}`;
+    }
+  }
   switch (e.kind) {
-    case 'BREAK':
+    case 'BREAK': {
+      const what = e.room === 'medbay' ? `the scanner was smashed ${when}` : `${room(e.room)} broke ${when}`;
+      if (cleared && n <= 1) return `when ${what}, ${reach} people were in reach, and output clears everyone but ${T}`;
+      if (cleared) return `when ${what}, ${reach} people were in reach; output clears ${cleared} of them, and ${T} is one of the ${n} left`;
       return n <= 1
-        ? `${T} was the only one who could reach ${room(e.room)} when it broke ${when}`
-        : `${T} was one of ${n} people next to ${room(e.room)} when it broke ${when}`;
+        ? `${T} was the only one who could reach ${room(e.room)} when ${what}`
+        : `${T} was one of ${n} people next to ${room(e.room)} when ${what}`;
+    }
     case 'STEAL':
       return n <= 1
         ? `${e.room === 'reactor' ? 'cells' : 'scrap'} went missing ${when} and ${T} was alone in the ${lower(e.room)}`
         : `${e.room === 'reactor' ? 'cells' : 'scrap'} went missing from the ${lower(e.room)} ${when} and ${T} was in there`;
     case 'SLACK':
+      if (e.room === 'medbay')
+        return n <= 1
+          ? `${T} was alone in the Med bay ${when} and no repair attempt was paid for`
+          : `the Med bay paid for fewer repair attempts than it had people ${when}, and ${T} was one of the ${n} in it`;
       return n <= 1
         ? `${T} was alone in the ${lower(e.room)} ${when} and its production came up short`
         : `the ${lower(e.room)} produced less than its staffing suggested ${when}, and ${T} was one of the ${n} in it`;
+    case 'CORRUPT':
+      return n <= 1
+        ? `Infection rose ${when} with nothing broken or stolen, so a repair was corrupted, and ${T} was alone in the Med bay`
+        : `Infection rose ${when} with nothing broken or stolen, so a repair was corrupted by one of the ${n} in the Med bay, ${T} among them`;
+    case 'VOTED':
+      return `${T} drew ${e.count ?? 'several'} ballot${e.count === 1 ? '' : 's'} ${when} and nothing since has cleared that up`;
     case 'MEDBAY':
       return `Med bay repairs fell below expectation ${when} and ${T} was one of ${n} there; bad luck is still possible`;
     case 'IDLE':
@@ -65,6 +104,10 @@ export function describeEvidence(e: Evidence | null, target: string, c: VoiceCon
       return `${T} pushed for a scan on someone who turned out to be crew`;
   }
 }
+
+/** The whole case: the strongest piece, and a second one from another round when there is one. */
+const describeCase = (u: any, c: VoiceContext) =>
+  describeEvidence(u.evidence, u.target, c) + (u.also ? `, and ${u.also.kind === 'VOTED' ? '' : 'was '}${describeEvidence(u.also, u.target, c, true)}` : '');
 
 const whyWords: Record<Why, string[]> = {
   repair: ['fix it before the fuse goes', 'get it repaired', 'patch it up'],
@@ -125,21 +168,21 @@ const POOLS: Record<Utterance['kind'], Pool> = {
   },
   ACCUSE: {
     any: [
-      (u, c) => `I'm looking at ${c.name(u.target)}: ${describeEvidence(u.evidence, u.target, c)}.`,
-      (u, c) => `${describeEvidence(u.evidence, u.target, c)}. Explain that, ${c.name(u.target)}.`,
+      (u, c) => `I'm looking at ${c.name(u.target)}: ${describeCase(u, c)}.`,
+      (u, c) => `${cap(describeCase(u, c))}. Explain that, ${c.name(u.target)}.`,
     ],
-    terse: [(u, c) => `${c.name(u.target)}. ${describeEvidence(u.evidence, u.target, c)}.`],
+    terse: [(u, c) => `${c.name(u.target)}. ${cap(describeCase(u, c))}.`],
     analytical: [
-      (u, c) => `${describeEvidence(u.evidence, u.target, c)}. That is the strongest lead we have.`,
-      (u, c) => `Put ${c.name(u.target)} at the top of the list: ${describeEvidence(u.evidence, u.target, c)}.`,
+      (u, c) => `${cap(describeCase(u, c))}. That is the strongest lead we have.`,
+      (u, c) => `Put ${c.name(u.target)} at the top of the list: ${describeCase(u, c)}.`,
     ],
     nervous: [
-      (u, c) => `I don't want to be wrong, but ${describeEvidence(u.evidence, u.target, c)}.`,
-      (u, c) => `Sorry ${c.name(u.target)}, but ${describeEvidence(u.evidence, u.target, c)}.`,
+      (u, c) => `I don't want to be wrong, but ${describeCase(u, c)}.`,
+      (u, c) => `Sorry ${c.name(u.target)}, but ${describeCase(u, c)}.`,
     ],
     joker: [
-      (u, c) => `Not to point fingers, but I'm pointing: ${describeEvidence(u.evidence, u.target, c)}.`,
-      (u, c) => `${c.name(u.target)}, funny story — ${describeEvidence(u.evidence, u.target, c)}.`,
+      (u, c) => `Not to point fingers, but I'm pointing: ${describeCase(u, c)}.`,
+      (u, c) => `${c.name(u.target)}, funny story — ${describeCase(u, c)}.`,
     ],
   },
   DEFEND: {
@@ -148,7 +191,7 @@ const POOLS: Record<Utterance['kind'], Pool> = {
         u.claim === 'verified'
           ? `I've been scanned, ${c.name(u.accuser)}. Look somewhere else.`
           : u.claim === 'notAlone'
-            ? `${c.name(u.accuser)}, I wasn't the only one in reach. ${u.evidence ? (u.evidence.witnesses ?? u.evidence.suspects).length : 'Several'} of us could have done it.`
+            ? `${c.name(u.accuser)}, I wasn't the only one in reach. ${u.evidence ? seen(u.evidence) : 'Several'} of us could have done it.`
             : `I was working, ${c.name(u.accuser)}. Check where I've been every round.`,
       (u, c) =>
         u.claim === 'verified'
@@ -217,7 +260,13 @@ const POOLS: Record<Utterance['kind'], Pool> = {
           case 'stolen':
             return `We are short on ${u.room === 'reactor' ? 'cells' : 'scrap'}. Somebody in the ${lower(u.room)} took them.`;
           case 'short':
-            return `The ${lower(u.room)} produced less than its staffing suggested. Someone in there was not working.`;
+            return u.room === 'medbay'
+              ? `The Med bay paid for fewer attempts than it had people. Someone in there made no attempt.`
+              : `The ${lower(u.room)} produced less than its staffing suggested. Someone in there was not working.`;
+          case 'corrupt':
+            return `Infection went up and nothing broke or went missing. That was a corrupted repair: look at the Med bay.`;
+          case 'unlucky':
+            return `No repairs, but the meter went down, so that was the dice, not a Mimic.`;
           case 'xray':
             return `X-ray online. Now we can actually check people.`;
           case 'good':
@@ -247,7 +296,11 @@ const POOLS: Record<Utterance['kind'], Pool> = {
           case 'stolen':
             return `Did someone just steal ${u.room === 'reactor' ? 'cells' : 'scrap'}? We're behind now.`;
           case 'short':
-            return `The ${lower(u.room)} made less than it should have. I don't like that.`;
+            return u.room === 'medbay' ? `Fewer attempts than people in the Med bay. Someone sat on their hands.` : `The ${lower(u.room)} made less than it should have. I don't like that.`;
+          case 'corrupt':
+            return `The meter went up and nothing is broken. Someone in the Med bay corrupted a repair. That scares me.`;
+          case 'unlucky':
+            return `Nothing repaired, but Infection dropped. Just bad rolls, I hope.`;
           case 'bad':
             return `Zero repairs. That feels wrong.`;
           default:
@@ -271,7 +324,11 @@ const POOLS: Record<Utterance['kind'], Pool> = {
           case 'stolen':
             return `${u.room === 'reactor' ? 'Cells' : 'Scrap'} walked off by themselves, apparently.`;
           case 'short':
-            return `Someone in the ${lower(u.room)} was on a break. Not that kind of break. Or maybe that kind.`;
+            return u.room === 'medbay' ? `The Med bay had more people than attempts. Someone was there for the view.` : `Someone in the ${lower(u.room)} was on a break. Not that kind of break. Or maybe that kind.`;
+          case 'corrupt':
+            return `Infection up, nothing broken. Somebody in the Med bay has been "helping" with the repairs.`;
+          case 'unlucky':
+            return `No repairs and the meter fell. The dice hate us, but at least they're honest.`;
           case 'xray':
             return `X-ray's up. Time to find out who's made of goo.`;
           case 'bad':
@@ -296,7 +353,7 @@ const POOLS: Record<Utterance['kind'], Pool> = {
       },
     ],
     terse: [
-      (u, c) => (u.choice === 'SKIP' ? `Skipped. No lead.` : `${c.name(u.choice)}. ${describeEvidence(u.evidence, u.choice, c)}.`),
+      (u, c) => (u.choice === 'SKIP' ? `Skipped. No lead.` : `${c.name(u.choice)}. ${cap(describeEvidence(u.evidence, u.choice, c))}.`),
     ],
   },
   VOTE_REACT: {
@@ -365,10 +422,10 @@ const EXTRA: Partial<Record<Utterance['kind'], T[]>> = {
     (u) => `I'll cover ${room(u.room)} this round.`,
   ],
   ACCUSE: [
-    (u, c) => `Can we check this detail? ${describeEvidence(u.evidence, u.target, c)}.`,
-    (u, c) => `My case for checking ${c.name(u.target)} is this: ${describeEvidence(u.evidence, u.target, c)}.`,
-    (u, c) => `Before we choose a scan, remember: ${describeEvidence(u.evidence, u.target, c)}.`,
-    (u, c) => `I haven't ruled out ${c.name(u.target)}. ${describeEvidence(u.evidence, u.target, c)}.`,
+    (u, c) => `Can we check this detail? ${cap(describeCase(u, c))}.`,
+    (u, c) => `My case for checking ${c.name(u.target)} is this: ${describeCase(u, c)}.`,
+    (u, c) => `Before we choose a scan, remember: ${describeCase(u, c)}.`,
+    (u, c) => `I haven't ruled out ${c.name(u.target)}. ${cap(describeCase(u, c))}.`,
   ],
   AGREE: [
     (u, c) => `I'd support checking ${c.name(u.target)} next.`,
@@ -388,7 +445,7 @@ const EXTRA: Partial<Record<Utterance['kind'], T[]>> = {
     () => `Let's compare the next report with the work we planned.`,
   ],
   VOTE_REASON: [
-    (u, c) => u.choice === 'SKIP' ? `I kept my vote on skip; I wasn't convinced by the case.` : `My ballot was ${c.name(u.choice)}. ${u.evidence ? describeEvidence(u.evidence, u.choice, c) + '.' : 'I wanted more information from the scan.'}`,
+    (u, c) => u.choice === 'SKIP' ? `I kept my vote on skip; I wasn't convinced by the case.` : `My ballot was ${c.name(u.choice)}. ${u.evidence ? cap(describeEvidence(u.evidence, u.choice, c)) + '.' : 'I wanted more information from the scan.'}`,
     (u, c) => u.choice === 'SKIP' ? `I wasn't ready to commit those cells.` : `${c.name(u.choice)} was my pick on that ballot${u.evidence ? ': ' + describeEvidence(u.evidence, u.choice, c) : '; I had no certain answer'}.`,
   ],
   REACT: [
@@ -396,7 +453,9 @@ const EXTRA: Partial<Record<Utterance['kind'], T[]>> = {
       break: `${room(u.room)} needs a repair assignment before its fuse expires.`,
       smash: `A hit on the Med bay cost a repair. Check whether the scanner recovered.`,
       stolen: `The ${lower(u.room)} resource accounting shows a theft.`,
-      short: `Production in the ${lower(u.room)} doesn't match its headcount.`,
+      short: u.room === 'medbay' ? `The Med bay's scrap spending doesn't match its headcount.` : `Production in the ${lower(u.room)} doesn't match its headcount.`,
+      corrupt: `Infection rose with no visible damage: a Med bay repair was corrupted this round.`,
+      unlucky: `Repairs failed, but Infection fell, so nobody corrupted them.`,
       xray: `Scanner ready. Let's look at our cells and shortlist.`,
       good: `The repair track moved in our favor.`, bad: `Poor repair results, but chance alone can do that.`,
       quiet: `Nothing decisive in that report.`, repaired: `${room(u.room)} has been patched up.`,
@@ -405,7 +464,9 @@ const EXTRA: Partial<Record<Utterance['kind'], T[]>> = {
       break: `Put ${room(u.room)} on the repair list. We can't leave that fuse running.`,
       smash: `Med bay sabotage showed up in the report. Repair cover matters.`,
       stolen: `We lost resources from the ${lower(u.room)}. Who was assigned there?`,
-      short: `Someone in the ${lower(u.room)} didn't contribute the expected production.`,
+      short: u.room === 'medbay' ? `Someone in the Med bay did not pay for an attempt.` : `Someone in the ${lower(u.room)} didn't contribute the expected production.`,
+      corrupt: `The meter rose and nothing else happened. Whoever was in the Med bay, one of you corrupted a repair.`,
+      unlucky: `The meter went down, so those failed repairs were honest failures.`,
       xray: `We can start verifying people now, provided the cells are there.`,
       good: `Useful progress from the Med bay.`, bad: `No repair progress. Let's avoid treating bad luck as proof.`,
       quiet: `I'll wait for a stronger signal.`, repaired: `The ${lower(u.room)} repair landed.`,
