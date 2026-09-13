@@ -206,10 +206,21 @@ describe('GameGateway', () => {
     const lobby = await until(host, (s) => s.botSkill === 'HARD');
     expect(lobby.players.every((p: any) => p.isBot && !/^Bot /.test(p.name))).toBe(true);
     let chat: any[] = [];
+    const reports: any[] = [];
+    host.on('resolution', (payload: any) => reports.push(payload.roundReport));
     host.on('chat', (payload: any[]) => (chat = payload));
     await ack(host, 'hostStart', { code, hostToken });
 
     const over = await next<any>(host, 'gameOver', 200000);
+    expect(reports.length).toBeGreaterThan(0);
+    for (const report of reports) {
+      expect(report.infection).toBeGreaterThanOrEqual(0);
+      expect(report.infection).toBeLessThanOrEqual(12);
+      expect(report.infectionDelta).toBeGreaterThanOrEqual(-1);
+      expect(report.infectionDelta).toBeLessThanOrEqual(2);
+      expect(report).not.toHaveProperty('intents');
+      expect(JSON.stringify(report)).not.toMatch(/"(role|token|intent|focus|action)":/);
+    }
     // The bots talked, on the monitor's feed, and nothing in it is shaped like a role.
     expect(chat.length).toBeGreaterThan(0);
     for (const m of chat) {
@@ -218,7 +229,7 @@ describe('GameGateway', () => {
     }
     expect(JSON.stringify(chat)).not.toMatch(/"role"|MIMIC|CREW/);
     expect(['CREW', 'MIMIC']).toContain(over.winner);
-    expect(['HULL_BREACH', 'ALL_MIMICS_FOUND', 'REACHED_THE_RELAY']).toContain(over.reason);
+    expect(['HULL_BREACH', 'ALL_MIMICS_FOUND', 'REACHED_THE_RELAY', 'INFECTION_CONTAINED']).toContain(over.reason);
     expect(over.allRoles).toHaveLength(8);
     expect(over.allRoles.filter((r: any) => r.role === 'MIMIC').length).toBeGreaterThan(0);
   }, 240000);

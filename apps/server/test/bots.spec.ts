@@ -221,6 +221,43 @@ describe('the table plan', () => {
 });
 
 describe('the Mimic', () => {
+  it.each(['EASY', 'NORMAL', 'HARD'] as const)('spreads instead of hiding when the deadline demands it (%s)', skill => {
+    const s = game({ mimics: ['Gus'], skill });
+    s.round = s.config.rounds - 4;
+    s.infection = 0;
+    const ms = minds(s);
+    const gus = ms.find(m => m.id === byName(s, 'Gus').id)!;
+    gus.suspicion[gus.id] = 100;
+    gus.layLow = 5;
+    decideRound(ms, s, createRng(7));
+    expect(gus.plan!.action).toBe('SABO');
+    for (const m of ms) {
+      const p = m.plan!;
+      s.submissions[m.id] = { playerId: m.id, room: p.room, focus: p.focus, action: p.action };
+    }
+    expect(resolveRound(s, createRng(7)).state.infection).toBe(2);
+  });
+
+  it('allows a threatened Mimic to hide at arrival with infection to spare', () => {
+    const s = game({ mimics: ['Gus'] });
+    s.round = s.config.rounds; s.infection = 12;
+    const ms = minds(s);
+    const gus = ms.find(m => m.id === byName(s, 'Gus').id)!;
+    gus.suspicion[gus.id] = 100; gus.layLow = 5;
+    decideRound(ms, s, createRng(7));
+    expect(gus.plan!.action).toBe('WORK');
+  });
+
+  it('sabotages on the final round at ten, because quiet decay would lose', () => {
+    const s = game({ mimics: ['Gus'] });
+    s.round = s.config.rounds; s.infection = 10;
+    const ms = minds(s);
+    const gus = ms.find(m => m.id === byName(s, 'Gus').id)!;
+    gus.suspicion[gus.id] = 100; gus.layLow = 5;
+    decideRound(ms, s, createRng(7));
+    expect(gus.plan!.action).toBe('SABO');
+  });
+
   it('only ever submits a legal sabotage, and does sabotage', () => {
     let sabotaged = 0;
     for (let seed = 1; seed <= 40; seed++) {

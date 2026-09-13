@@ -1,6 +1,7 @@
 import {
   ADJACENCY,
   BREAKABLE,
+  INFECTION_RULES,
   ROOMS,
   focusTiles,
   isLegalBreak,
@@ -558,16 +559,23 @@ function decideMimic(
 ) {
   const t = tune(mind.skill);
   const options = sabotages(mind, state, plan).filter(o => !isLegalBreak(state, o.room, o.focus) || !reservedBreaks.has(o.focus));
-  const sorted = options.slice().sort((a, b) => b.value - a.value);
+  const futureRounds = Math.max(0, state.config.rounds - state.round);
+  const quietThenMaximum = Math.max(0, state.infection - INFECTION_RULES.decay) + futureRounds * INFECTION_RULES.gain;
+  const mustSpread = quietThenMaximum < INFECTION_RULES.threshold;
+  // A break or a nonempty theft has an immediate effect; corruption depends on crew work.
+  const reliable = options.filter(o => !(o.room === 'medbay' && o.focus === 'medbay'));
+  const candidates = mustSpread && reliable.length ? reliable : options;
+  const sorted = candidates.slice().sort((a, b) => b.value - a.value);
   const best = sorted[0];
   const layLowValue = 4 + heat * 3;
+  const infectionValue = state.infection < INFECTION_RULES.threshold ? 5 : 0;
 
   if (mind.layLow > 0) mind.layLow -= 1;
   const act =
     best &&
     designated &&
-    mind.layLow === 0 &&
-    (mind.skill === 'EASY' ? rng.chance(0.55) : best.value > layLowValue || state.round === state.config.rounds);
+    (mustSpread || (mind.layLow === 0 &&
+      (mind.skill === 'EASY' ? rng.chance(0.55) : best.value + infectionValue > layLowValue)));
 
   if (!act) {
     blend(mind, state, rng, plan);
@@ -577,7 +585,7 @@ function decideMimic(
   }
 
   let choice = best;
-  if (mind.skill === 'EASY') choice = rng.pick(options);
+  if (mind.skill === 'EASY') choice = rng.pick(candidates);
   else if (mind.skill === 'NORMAL' && rng.chance(0.3)) choice = rng.pick(sorted.slice(0, 3));
   mind.plan = {
     room: choice.room,

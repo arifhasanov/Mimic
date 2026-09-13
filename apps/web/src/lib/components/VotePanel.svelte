@@ -21,9 +21,10 @@
       .sort((a, b) => b.voters.length - a.voters.length);
   });
 
-  const scanned = $derived(
-    vote?.result?.kind === 'SCAN' ? gameState.players.find((p) => p.id === vote.result!.playerId) : null,
-  );
+  const scanned = $derived.by(() => {
+    const result = vote?.result;
+    return result?.kind === 'SCAN' ? gameState.players.find((p) => p.id === result.playerId) : null;
+  });
 
   /** Who is still expected to vote. In a runoff the two candidates are not among them. */
   const voters = $derived(

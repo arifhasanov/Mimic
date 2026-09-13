@@ -1,5 +1,6 @@
 import { upcomingStep, voteSkipReason, type Upcoming } from './engine.js';
 import { ROOMS } from './map.js';
+import { INFECTION_RULES } from './infection.js';
 import { settingsLine } from './settings.js';
 import type {
   Ballot,
@@ -53,6 +54,8 @@ export interface PublicVote {
 
 export interface PublicReport {
   round: number;
+  infection: number;
+  infectionDelta: number;
   rooms: RoomReport[];
   scrap: number;
   powerCells: number;
@@ -72,6 +75,8 @@ export interface PublicState {
   powerCells: number;
   repairProgress: number;
   xrayOnline: boolean;
+  infection: number;
+  infectionRules: typeof INFECTION_RULES;
   log: LogEntry[];
   winner: 'CREW' | 'MIMIC' | null;
   winReason: string | null;
@@ -135,6 +140,8 @@ export function toPublicState(state: GameState, lockedIn = 0, stepReadyAt = 0): 
     powerCells: state.powerCells,
     repairProgress: state.repairProgress,
     xrayOnline: state.xrayOnline,
+    infection: state.infection,
+    infectionRules: { ...INFECTION_RULES },
     log: state.log.map((e) => {
       const entry = { ...e };
       if (hide) delete entry.ballots;
@@ -149,6 +156,8 @@ export function toPublicState(state: GameState, lockedIn = 0, stepReadyAt = 0): 
     lastReport: state.lastReport
       ? {
           round: state.lastReport.round,
+          infection: state.lastReport.infection,
+          infectionDelta: state.lastReport.infectionDelta,
           rooms: state.lastReport.rooms.map((r) => ({ ...r })),
           scrap: state.lastReport.scrap,
           powerCells: state.lastReport.powerCells,

@@ -9,6 +9,32 @@ The rules live in [`mimic-v1-build-spec.md`](mimic-v1-build-spec.md) and
 [`mimic-v1-phone-spec.md`](mimic-v1-phone-spec.md). The phone spec wins for anything shown
 on a phone.
 
+## Infection objective
+
+Mimics need **a survivor and at least 10/12 Infection at arrival** to win. Below 10, relay
+screening destroys the surviving Mimics and the crew wins. Finding every Mimic still
+wins immediately for crew; a hull breach still wins immediately for Mimics.
+
+Infection starts at 0 and stays between 0 and 12. After each round's work resolves,
+effective sabotage adds 2 **once per team per round**, including in `each` mode.
+A round with no effective sabotage removes 1. New system breaks and scanner smashes
+count even if repaired immediately. Theft counts only when resources are removed;
+corruption counts only when it consumes a funded crew repair attempt. Illegal sabotage,
+empty theft, and corruption with no funded attempt do not count. The final round's
+change happens before the final scan and arrival check.
+
+Starting from zero requires at least five effective sabotage rounds. A quiet final
+round at 10 drops to 9 and loses; a full meter at 12 allows two quiet rounds before
+arrival. In a ten-round game, waiting until round 7 to start sabotaging is too late.
+
+The host's Infection meter sits inside the bottom status panel, to the right of crew
+names. Both sections have fixed shares of the panel width; names wrap without clipping.
+The meter shows the level, 0–12 scale, breach threshold and
+last round's change. Round logs retain Infection history. Mimic bots value spreading
+Infection and override hiding when another quiet round would make arrival victory
+unreachable. The old balance percentages are hidden pending fresh playtesting;
+the historical simulations below predate this objective.
+
 ---
 
 ## Run it
@@ -119,8 +145,8 @@ Two pieces are drawn by the app rather than baked into the image:
 
 ## Hosting a game
 
-The host screen owns the balance slider (five detents, `Crew++` to `Mimic++`) with a live
-crew-win estimate, and a **Custom** panel exposing every tunable key grouped into *Balance*
+The host screen owns the balance slider (five detents, `Crew++` to `Mimic++`), and a
+**Custom** panel exposing every tunable key grouped into *Balance*
 (who wins), *Pace* (when the X-ray comes online) and *Table* (how the evening runs). Settings
 can change any number of times in the lobby and never after start; the resolved values are
 shown on the lobby screen and repeated on the game-over screen, so a table that argues "that

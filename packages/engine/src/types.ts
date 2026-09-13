@@ -86,6 +86,8 @@ export interface RoomReport {
 
 export interface RoundReport {
   round: number;
+  infection: number;
+  infectionDelta: number;
   rooms: RoomReport[];
   scrap: number;
   powerCells: number;
@@ -172,6 +174,7 @@ export interface GameState {
   powerCells: number;
   repairProgress: number;
   xrayOnline: boolean;
+  infection: number;
   log: LogEntry[];
   winner: 'CREW' | 'MIMIC' | null;
   winReason: string | null;

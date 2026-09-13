@@ -522,7 +522,7 @@ export class GamesService implements OnModuleDestroy {
     this.schedule(g, this.seconds(g, 'RESOLVE'), () => this.afterResolve(g));
     this.broadcastState(g);
     this.emitPhase(g);
-    this.emitter?.broadcast(g.state.code, 'resolution', { roundReport: g.state.lastReport });
+    this.emitter?.broadcast(g.state.code, 'resolution', { roundReport: toPublicState(g.state).lastReport });
     this.pushSpectatorStates(g);
 
     // Every bot reads the report the way a human would, then a couple of them react to it.

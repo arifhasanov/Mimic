@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PublicState } from '$lib/types';
+  import InfectionMeter from './InfectionMeter.svelte';
 
   let { gameState }: { gameState: PublicState } = $props();
 
@@ -39,7 +40,7 @@
     </span>
   </div>
 
-  <div class="block wide">
+  <div class="block crew">
     <span class="eyebrow">Crew</span>
     <div class="roster">
       {#each gameState.players as p (p.id)}
@@ -54,11 +55,14 @@
       {/each}
     </div>
   </div>
+  <InfectionMeter {gameState} compact />
 </div>
 
 <style>
   .strip {
-    display: flex;
+    display: grid;
+    /* Fixed shares of the panel: neither names nor meter content can resize a column. */
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, .8fr) minmax(0, 2.8fr) minmax(0, 4.2fr);
     align-items: stretch;
     gap: 1px;
     background: var(--line);
@@ -68,19 +72,13 @@
   }
 
   .block {
-    flex: 0 0 auto;
-    min-width: 9.5rem;
+    min-width: 0;
     padding: 0.65rem 1.1rem 0.7rem;
     background: var(--hull);
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
     justify-content: center;
-  }
-
-  .block.wide {
-    flex: 1;
-    min-width: 0;
   }
 
   .big {
@@ -96,10 +94,6 @@
 
   .ready .big {
     color: var(--teal);
-  }
-
-  .repair {
-    min-width: 16rem;
   }
 
   .track {
@@ -133,8 +127,6 @@
     flex-wrap: wrap;
     gap: 0.3rem;
     align-content: center;
-    max-height: 4.2rem;
-    overflow: hidden;
   }
 
   .pill {
@@ -145,6 +137,8 @@
     border: 1px solid var(--line-2);
     border-radius: 999px;
     font-size: 0.85rem;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .pill.verified {
@@ -168,5 +162,12 @@
     font-style: normal;
     font-size: 0.65rem;
     letter-spacing: 0.1em;
+  }
+
+  @media (max-width: 1400px) {
+    .block { padding: .65rem .65rem .7rem; }
+    .block > .eyebrow { font-size: .62rem; letter-spacing: .12em; }
+    .note { font-size: .68rem; }
+    .pill { font-size: .8rem; padding: .2rem .45rem; }
   }
 </style>

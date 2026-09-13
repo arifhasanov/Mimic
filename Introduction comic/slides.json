@@ -1,0 +1,66 @@
+[
+  {
+    "id": "01-the-haul",
+    "title": "The haul",
+    "location": "An uncharted planet",
+    "durationMs": 14000,
+    "narration": "We came for what the planet held beneath its surface. Minerals. Metals. Enough to fill the hold. Ten miners, one ship, and one last haul before home.",
+    "alt": "A weathered mining ship rests on a rocky planet. Miners gather crystals and raw materials, then load full cargo crates aboard."
+  },
+  {
+    "id": "02-behind-the-stones",
+    "title": "Behind the stones",
+    "location": "Beyond the landing site",
+    "durationMs": 14000,
+    "narration": "Beyond the landing lights, two things watched us work. When two of our crew strayed behind the stones, the things hid. Then they struck.",
+    "alt": "Two dark alien organisms watch from behind boulders. Two miners approach; the creatures hide and spring an ambush."
+  },
+  {
+    "id": "03-borrowed-faces",
+    "title": "Borrowed faces",
+    "location": "Out of sight",
+    "durationMs": 14000,
+    "narration": "They entered our crewmates and learned their shapes. Their faces. Their size. Even their clothes. What walked back to the ship looked exactly like the people we knew.",
+    "alt": "The aliens enter the two fallen miners and emerge as perfect copies of their bodies, faces and work suits. The copies leave the original bodies behind."
+  },
+  {
+    "id": "04-ten-aboard",
+    "title": "Ten aboard",
+    "location": "Departure",
+    "durationMs": 14000,
+    "narration": "We counted ten aboard. Closed the hatch. Left the planet behind. No one saw the two bodies lying in the dust, beyond the reach of our landing lights.",
+    "alt": "Eight human miners and two indistinguishable mimics board. The ship lifts into space while the two original miners lie dead behind the rocks."
+  },
+  {
+    "id": "05-something-wrong",
+    "title": "Something wrong",
+    "location": "Deep space",
+    "durationMs": 14000,
+    "narration": "Out among the stars, things began to fail. Something was wrong aboard our ship. The medbay scanner could show what a face could hide. We would repair it, then check everyone. One by one.",
+    "alt": "The ship crosses a starfield. Worried crew inspect failing systems and turn toward the medbay X-ray scanner."
+  },
+  {
+    "id": "06-proof-of-humanity",
+    "title": "Proof of humanity",
+    "location": "Medbay",
+    "durationMs": 14000,
+    "narration": "We rebuilt the X-ray device. Every connection restored. Every test passed. At last, we had a way to tell who was human. For a moment, we thought we were safe.",
+    "alt": "Crew reconnect and repair the scanner. It powers up successfully, shows a human test scan, and the crew prepare to be examined individually."
+  },
+  {
+    "id": "07-sabotage",
+    "title": "Sabotage",
+    "location": "Medbay · later",
+    "durationMs": 14000,
+    "narration": "Then the medbay emptied. One crewmate slipped back inside. A familiar hand became something else. Wires snapped. The scanner went dark. Something aboard did not want to be found.",
+    "alt": "The repaired medbay is left empty. A mimic enters alone, transforms its hand and rips out the scanner wiring. Sparks fade as the device goes dark."
+  },
+  {
+    "id": "08-title",
+    "title": "MIMIC",
+    "location": "",
+    "durationMs": 14000,
+    "narration": "",
+    "alt": "MIMIC title on a dark starfield."
+  }
+]

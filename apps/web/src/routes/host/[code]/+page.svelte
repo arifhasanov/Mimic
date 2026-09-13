@@ -7,6 +7,7 @@
   import Starfield from '$lib/components/Starfield.svelte';
   import ShipMap from '$lib/components/ShipMap.svelte';
   import StatusStrip from '$lib/components/StatusStrip.svelte';
+  import InfectionMeter from '$lib/components/InfectionMeter.svelte';
   import VotePanel from '$lib/components/VotePanel.svelte';
   import LogPanel from '$lib/components/LogPanel.svelte';
   import HostSettings from '$lib/components/HostSettings.svelte';
@@ -161,7 +162,8 @@
     const reasons: Record<string, string> = {
       HULL_BREACH: 'A fuse burned out. The ship is gone.',
       ALL_MIMICS_FOUND: 'Every Mimic was found and scanned.',
-      REACHED_THE_RELAY: 'The ship reached the relay with a Mimic still aboard.',
+      REACHED_THE_RELAY: 'Infection overwhelmed the relay defences. A Mimic survived to reach the station.',
+      INFECTION_CONTAINED: 'Infection stayed below the breach threshold. Relay screening destroyed the remaining Mimics.',
     };
     return reasons[gameState.winReason ?? ''] ?? '';
   });
@@ -259,6 +261,7 @@
       {gameState.winner === 'CREW' ? 'The crew survives' : 'The Mimics win'}
     </h2>
     <p class="lead">{winnerLine}</p>
+    <InfectionMeter {gameState} />
 
     <div class="reveal">
       {#each gameState.players as p (p.id)}
@@ -618,7 +621,7 @@
 
   .game {
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   .bar {

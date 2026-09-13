@@ -6,18 +6,6 @@
 
   const LABELS = ['Crew++', 'Crew+', 'Balanced', 'Mimic+', 'Mimic++'];
 
-  /** Simulated crew win %, average table (tools/balance_sim.py). Data, not logic. */
-  const WIN: Record<number, number[]> = {
-    5: [99, 97, 87, 74, 62],
-    6: [94, 80, 53, 32, 17],
-    7: [97, 89, 59, 41, 23],
-    8: [95, 88, 60, 40, 26],
-    9: [93, 84, 55, 41, 31],
-    10: [94, 81, 58, 43, 15],
-    11: [94, 79, 60, 50, 21],
-    12: [84, 69, 53, 46, 17],
-  };
-
   let balance = $state<Balance>(0);
   let custom = $state(false);
   let form = $state<Record<string, number | string | boolean>>({});
@@ -29,12 +17,8 @@
     custom = gameState.isCustom;
   });
 
-  const estimate = $derived.by(() => {
-    if (custom) return 'Estimate not available for custom settings';
-    const row = WIN[gameState.players.length];
-    if (!row) return `Add ${Math.max(0, 5 - gameState.players.length)} more to see an estimate`;
-    return `Estimated crew win chance: ~${row[balance + 2]}%`;
-  });
+  // Previous estimates used survival-only wins and are invalid with the Infection objective.
+  const estimate = 'Infection rules active · win-rate estimates awaiting playtesting';
 
   async function push(patch: {
     balance?: Balance;

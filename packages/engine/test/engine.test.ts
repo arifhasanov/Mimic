@@ -279,9 +279,10 @@ describe('9/10. game over', () => {
     expect(state.winReason).toBe('ALL_MIMICS_FOUND');
   });
 
-  it('finishing the last round with an alien alive is a Mimic win', () => {
+  it('finishing the last round with an alien alive and enough infection is a Mimic win', () => {
     const s = makeGame(8, { mimics: ['Ann', 'Bo'] });
     s.round = 10;
+    s.infection = 10;
     const out = checkEndOfGame(s);
     expect(out.winner).toBe('MIMIC');
     expect(out.winReason).toBe('REACHED_THE_RELAY');

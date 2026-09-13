@@ -1,4 +1,5 @@
 import { ADJACENCY, BREAKABLE, PIPES, ROOMS, ROOM_NAMES, focusTiles } from './map.js';
+import { INFECTION_RULES } from './infection.js';
 import type { Rng } from './rng.js';
 import { defaultSettings, resolveSettings, settingsLine, UNLIMITED } from './settings.js';
 import type {
@@ -37,6 +38,7 @@ export function createGame(code: string, seed: number): GameState {
     powerCells: 0,
     repairProgress: 0,
     xrayOnline: false,
+    infection: 0,
     log: [],
     winner: null,
     winReason: null,
@@ -76,6 +78,7 @@ export function startGame(state: GameState, rng: Rng): GameState {
   s.powerCells = s.config.startingCells;
   s.repairProgress = 0;
   s.xrayOnline = false;
+  s.infection = 0;
   s.round = 0;
   s.winner = null;
   s.winReason = null;
@@ -220,6 +223,7 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
   // 3. Apply the chosen sabotage.
   let corruptedAttempts = 0;
   let medbaySmashed = false;
+  let effectiveSabotage = false;
   for (const sab of chosen) {
     if (sab.intent === 'BREAK' && sab.target === 'medbay') {
       // No fuse and no broken room: the smash costs the crew one X-ray repair, and the
@@ -229,16 +233,20 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
         s.repairProgress = Math.max(0, s.repairProgress - 1);
         s.xrayOnline = false;
         medbaySmashed = true;
+        effectiveSabotage = true;
       }
     } else if (sab.intent === 'BREAK' && sab.target) {
       // Re-check: with 'each', two Mimics could aim at the same room.
       if (BREAKABLE[sab.target] && !s.rooms[sab.target].broken) {
         s.rooms[sab.target].broken = true;
         s.rooms[sab.target].fuse = cfg.fuseLength;
+        effectiveSabotage = true;
       }
     } else if (sab.intent === 'CORRUPT') {
       corruptedAttempts += 1;
     } else if (sab.intent === 'STEAL') {
+      if (cfg.stealAmount > 0 && (sab.resource === 'scrap' ? s.scrap : s.powerCells) > 0)
+        effectiveSabotage = true;
       if (sab.resource === 'scrap') s.scrap = Math.max(0, s.scrap - cfg.stealAmount);
       else s.powerCells = Math.max(0, s.powerCells - cfg.stealAmount);
     }
@@ -280,6 +288,8 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
     s.scrap -= cfg.repairCostScrap;
     if (corruptLeft > 0) {
       corruptLeft -= 1;
+      // Consuming a funded attempt counts even if that attempt might have failed naturally.
+      effectiveSabotage = true;
       continue;
     }
     if (rng.chance(cfg.repairSuccessChance)) repairsGained += 1;
@@ -288,6 +298,12 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
     s.repairProgress = Math.min(cfg.repairTarget, s.repairProgress + repairsGained);
     if (s.repairProgress >= cfg.repairTarget) s.xrayOnline = true;
   }
+
+  // Infection settles once, after effects are known, before the vote and arrival check.
+  const infectionBefore = s.infection;
+  s.infection = effectiveSabotage
+    ? Math.min(INFECTION_RULES.max, s.infection + INFECTION_RULES.gain)
+    : Math.max(0, s.infection - INFECTION_RULES.decay);
 
   // 7. Build the public report. Occupants are public; intents never are.
   const occupants = {} as Record<RoomId, string[]>;
@@ -316,6 +332,8 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
 
   const report: RoundReport = {
     round: s.round,
+    infection: s.infection,
+    infectionDelta: s.infection - infectionBefore,
     rooms,
     scrap: s.scrap,
     powerCells: s.powerCells,
@@ -325,7 +343,10 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
   };
   s.lastReport = report;
   s.phase = 'RESOLVE';
-  s.log.push({ round: s.round, kind: 'ROUND', text: 'Round ' + s.round, rooms });
+  const infectionNote = effectiveSabotage ? 'effective sabotage' : 'no effective sabotage';
+  const delta = report.infectionDelta;
+  s.log.push({ round: s.round, kind: 'ROUND',
+    text: `Round ${s.round} · Infection ${s.infection}/${INFECTION_RULES.max} (${delta > 0 ? '+' : ''}${delta}; ${infectionNote})`, rooms });
   return { state: s, report };
 }
 
@@ -544,7 +565,7 @@ export function upcomingStep(state: GameState): {
   }
 }
 
-/** After the last round completes with an alien alive, the ship reaches the relay. */
+/** Arrival needs both a surviving Mimic and enough infection to defeat relay screening. */
 export function checkEndOfGame(state: GameState): GameState {
   const s = structuredClone(state);
   if (s.winner) return s;
@@ -555,9 +576,13 @@ export function checkEndOfGame(state: GameState): GameState {
     return s;
   }
   if (s.round >= s.config.rounds) {
-    s.winner = 'MIMIC';
-    s.winReason = 'REACHED_THE_RELAY';
+    const infected = s.infection >= INFECTION_RULES.threshold;
+    s.winner = infected ? 'MIMIC' : 'CREW';
+    s.winReason = infected ? 'REACHED_THE_RELAY' : 'INFECTION_CONTAINED';
     s.phase = 'GAME_OVER';
+    s.log.push({ round: s.round, kind: 'GAME_OVER', text: infected
+      ? `Infection ${s.infection}/${INFECTION_RULES.max}. A surviving Mimic breached the relay's defences.`
+      : `Infection ${s.infection}/${INFECTION_RULES.max}, below ${INFECTION_RULES.threshold}. Relay screening destroyed the remaining Mimics.` });
   }
   return s;
 }

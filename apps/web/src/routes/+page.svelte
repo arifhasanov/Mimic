@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import Starfield from '$lib/components/Starfield.svelte';
+  import IntroductionComic from '$lib/components/IntroductionComic.svelte';
+  import { hasSeenIntroduction, rememberIntroduction } from '$lib/introduction';
   import { game } from '$lib/game.svelte';
   import { emitAck, saveHost, saveSession } from '$lib/socket';
 
@@ -13,7 +15,19 @@
   const notice = $derived(NOTICES[page.url.searchParams.get('notice') ?? ''] ?? '');
 
   // Whatever game this tab was in before, it is over now.
-  onMount(() => game.reset());
+  let showIntroduction = $state(true);
+  let menuHeading = $state<HTMLHeadingElement>();
+  onMount(() => {
+    game.reset();
+    showIntroduction = !notice && !hasSeenIntroduction();
+  });
+
+  async function finishIntroduction() {
+    rememberIntroduction();
+    showIntroduction = false;
+    await tick();
+    menuHeading?.focus();
+  }
 
   let code = $state('');
   let name = $state('');
@@ -57,9 +71,12 @@
 
 <Starfield density={0.8} />
 
+{#if showIntroduction}
+  <IntroductionComic oncomplete={finishIntroduction} />
+{:else}
 <main>
   <header>
-    <h1 class="cond">MIMIC</h1>
+    <h1 class="cond" bind:this={menuHeading!} tabindex="-1">MIMIC</h1>
     <p class="tag">Something on this ship is wearing a face that isn't its own.</p>
   </header>
 
@@ -94,7 +111,9 @@
     <p>Running the game on a monitor?</p>
     <button class="ghost" onclick={hostGame} disabled={busy}>Create a game</button>
   </div>
+  <button class="replay" onclick={() => { showIntroduction = true; }}>Replay introduction</button>
 </main>
+{/if}
 
 <style>
   main {
@@ -219,4 +238,7 @@
     color: var(--ink-dim);
     font-size: 0.9rem;
   }
+
+  .replay { align-self: center; border: 0; background: transparent; color: var(--ink-dim); font-size: .8rem; text-decoration: underline; text-underline-offset: 4px; padding: .5rem; }
+  h1:focus { outline: none; }
 </style>

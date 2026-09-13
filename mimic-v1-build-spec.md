@@ -2,6 +2,10 @@
 
 Build a web app for a real-life social deduction party game called **MIMIC**.
 
+**Infection update:** Arrival now requires a surviving Mimic and Infection ≥10/12.
+See resolution step 6b and section 12. The earlier balance simulation figures in this
+document predate this objective and must not be displayed as current estimates.
+
 ---
 
 ## 0. Changes from v1.0 (read first)
@@ -55,7 +59,7 @@ Your job is to build the server, the TV view, and the phone view. The server is 
 
 ## 2. The game in one paragraph
 
-A spaceship crew is 10 rounds from a space station. Hidden among them are Mimics — aliens that look exactly like crew members. The crew must rebuild a broken X-ray machine in the Med bay, then vote each round on who gets scanned. The scanner reveals the truth: an alien scanned is killed. Aliens secretly sabotage the ship's systems, and secretly corrupt the X-ray repairs. If the crew kills every alien, the crew wins. If a broken system's fuse runs out, or if round 10 finishes with any alien alive, the aliens win.
+A spaceship crew is 10 rounds from a space station. Hidden among them are Mimics — aliens that look exactly like crew members. The crew must rebuild a broken X-ray machine in the Med bay, then vote each round on who gets scanned. The scanner reveals the truth: an alien scanned is killed. Aliens secretly sabotage the ship's systems, and secretly corrupt the X-ray repairs. If the crew kills every alien, the crew wins. If a broken system's fuse runs out, the aliens win. At arrival, aliens need both a survivor and Infection of at least 10/12; otherwise relay screening destroys the remaining Mimics and crew wins.
 
 ---
 
@@ -236,7 +240,9 @@ Run at the start of `RESOLVE`.
    - Otherwise spend 1 scrap. If `corruptedAttempts > 0`, decrement it and the attempt fails. Otherwise roll: 60% → `repairProgress += 1`.
    - Cap `repairProgress` at 6. At 6, set `xrayOnline = true`.
 
-7. **Build the public report.** Per-room totals only. Never per-player results, never individual dice rolls, never who sabotaged.
+6b. **Settle Infection.** Start at 0, clamp to 0–12. If at least one selected sabotage had an effect, add 2 once for the team (also in `each` mode); otherwise subtract 1. A new system break or scanner smash counts even if repaired immediately. Theft must remove at least one resource before production; CORRUPT must consume a funded crew repair attempt. A naturally unsuccessful attempt still counts when corrupted: the funded attempt was consumed. Illegal choices, empty thefts, unused corruption and damage left over from earlier rounds do not count. Resolve this before the vote and arrival check.
+
+7. **Build the public report.** Per-room totals plus the shared Infection level and actual clamped change. Never per-player results, never individual dice rolls, never who sabotaged. Record Infection in the round log. The shared meter intentionally reveals whether effective sabotage happened, including corruption, without naming a contributor.
 
 Example report objects the TV renders:
 
@@ -298,7 +304,7 @@ Check in this order.
 
 1. At the start of `REPORT`: any fuse at 0 → **aliens win** (`HULL_BREACH`).
 2. Immediately after a scan: no living aliens → **crew win** (`ALL_MIMICS_FOUND`).
-3. After round 10 fully completes: at least one living alien → **aliens win** (`REACHED_THE_RELAY`).
+3. After the configured final round fully completes, including its Infection update and scan: at least one living alien and Infection ≥10 → **aliens win** (`REACHED_THE_RELAY`). Below 10 → **crew win** (`INFECTION_CONTAINED`), as relay screening destroys the remaining aliens. Reaching 10 or 12 before arrival does not end the game. A final scan finding the last alien takes precedence.
 
 On game over, the TV shows every player's true role and a round-by-round replay of the public log.
 
@@ -497,7 +503,7 @@ Write these as automated tests against the game engine with a fixed RNG seed.
 7. Vote tie between two players triggers a runoff; those two players do not vote in it at all; a second tie spends no power cells.
 8. `SKIP` winning the first ballot spends no power cells and scans nobody.
 9. Scanning the last living alien ends the game immediately with `ALL_MIMICS_FOUND`.
-10. Completing round 10 with an alien alive ends the game with `REACHED_THE_RELAY`.
+10. Completing the final round with an alien alive and Infection ≥10 ends the game with `REACHED_THE_RELAY`. Below 10, it ends with `INFECTION_CONTAINED`. Test quiet-round decay, the 0 and 12 clamps, ineffective sabotage, once-per-round growth in both sabotage modes, and final-scan precedence.
 11. Snapshot test: a broadcast `PublicState` for a mid-game round contains no `role`, `token`, `intent`, `focus` or `action` key at any depth.
 12. `actOptions` built for a crew member and for a Mimic in the same game state are deep-equal.
 13. A crew submission with `action: 'SABO'` resolves as `WORK` and leaves no trace in the log or state; the state after the round is deep-equal to the same round with `action: 'WORK'`.
@@ -546,7 +552,7 @@ The slider drives only three keys: `reactorCapCells`, `scanCostCells`, `rounds`.
 | `+1` Mimic+ | 3 / 5 / 10 | 6 / 6 / 10 |
 | `+2` Mimic++ | 3 / 6 / 10 | 5 / 7 / 10 |
 
-Next to the slider show a live estimate: `Estimated crew win chance: ~60%`. It comes from this lookup table (simulated, average table, `tools/balance_sim.py`), keyed by position and current lobby size. Update it whenever a player joins or leaves.
+The table below is historical, from the survival-only win condition. With the Infection objective, do not display these percentages: show `Infection rules active · win-rate estimates awaiting playtesting` until fresh simulations and playtests calibrate them.
 
 | Players | Crew++ | Crew+ | Balanced | Mimic+ | Mimic++ |
 |---|---|---|---|---|---|
@@ -588,7 +594,7 @@ A `Custom` toggle under the slider. When on, the slider greys out and a form lis
 | `phaseSeconds.REPORT` | 5–60 | 20 | Time the ship report stays on screen |
 | `phaseSeconds.RESOLVE` | 10–90 | 30 | Time the round result stays on screen |
 
-With Custom on, the crew-win estimate reads `Estimate not available for custom settings`. Do not try to interpolate.
+With Custom on, show the same Infection playtesting notice. Do not interpolate historical estimates.
 
 Group the Custom form under three headings so the host understands what each key does:
 

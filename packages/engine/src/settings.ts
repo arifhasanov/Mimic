@@ -1,4 +1,5 @@
 import type { Balance, BotSkill, CustomSettings, ResolvedConfig, SettingsInput } from './types.js';
+import { INFECTION_RULES } from './infection.js';
 
 /** Stand-in for Infinity so the config survives JSON. Any value >= this reads as "unlimited". */
 export const UNLIMITED = 99;
@@ -141,6 +142,7 @@ export function settingsLine(
     `${config.rounds} rounds`,
     `scans cost ${config.scanCostCells} cells`,
     `Reactor makes up to ${config.reactorCapCells} cells a round`,
+    `Mimics need Infection ${INFECTION_RULES.threshold}/${INFECTION_RULES.max} and a survivor at arrival`,
     ...(modes.manualSteps ? ['manual steps'] : []),
     ...(modes.hiddenVotes ? ['votes hidden'] : []),
     ...(modes.botSkill && modes.botSkill !== 'NORMAL' ? [modes.botSkill.toLowerCase() + ' bots'] : []),
