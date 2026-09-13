@@ -622,6 +622,47 @@ describe('the Med bay can be smashed once the X-ray works', () => {
     expect(state.repairProgress).toBe(s.config.repairTarget);
     expect(state.xrayOnline).toBe(true);
   });
+
+  it('a working X-ray needs nothing: no scrap spent, nothing to do', () => {
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.repairProgress = s.config.repairTarget;
+    s.xrayOnline = true;
+    s.scrap = 4;
+    for (const n of ['Bo', 'Cal']) sub(s, n, 'medbay');
+    for (const n of ['Ann', 'Dee', 'Eva', 'Fin']) sub(s, n, 'reactor');
+    const { state, report } = resolveRound(s, scriptedRng([0, 0, 0, 0, 0, 0, 0, 0]));
+    expect(state.scrap).toBe(4);
+    expect(state.repairProgress).toBe(s.config.repairTarget);
+    expect(report.rooms.find((r) => r.room === 'medbay')!.summary).toBe('nothing to do');
+  });
+
+  it('a smash the same round still lets the crew inside win the repair back', () => {
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.repairProgress = s.config.repairTarget;
+    s.xrayOnline = true;
+    s.scrap = 4;
+    sub(s, 'Ann', 'oxygen', 'medbay', 'SABO');
+    sub(s, 'Bo', 'medbay');
+    for (const n of ['Cal', 'Dee', 'Eva', 'Fin']) sub(s, n, 'reactor');
+    const { state, report } = resolveRound(s, scriptedRng([0, 0, 0, 0, 0, 0, 0, 0]));
+    expect(state.scrap).toBe(4 - s.config.repairCostScrap);
+    expect(state.xrayOnline).toBe(true);
+    expect(report.rooms.find((r) => r.room === 'medbay')!.summary).toBe('smashed, −1 repair · +1 repair');
+  });
+});
+
+describe('a verified crew member leaves the ballot', () => {
+  it('is not a candidate on later first ballots', () => {
+    let s = makeGame(6, { mimics: ['Ann'] });
+    s.xrayOnline = true;
+    s.powerCells = 4;
+    const bo = byName(s, 'Bo');
+    bo.verified = true;
+    s = startVote(s);
+    expect(s.vote!.candidates).not.toContain(bo.id);
+    expect(s.vote!.voters).toContain(bo.id); // still votes
+    expect(castBallot(s, byName(s, 'Cal').id, bo.id).ok).toBe(false);
+  });
 });
 
 describe('why a round ends without a vote', () => {

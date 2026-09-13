@@ -279,8 +279,9 @@ export function resolveRound(state: GameState, rng: Rng): { state: GameState; re
   s.powerCells += cellsGained;
   s.scrap += scrapGained;
 
-  // 6. Resolve the Med bay.
-  const attempts = Math.min(workersByRoom.medbay.length, cfg.medbaySeats);
+  // 6. Resolve the Med bay. A working X-ray needs nothing, so nobody spends scrap on it —
+  // unless it was smashed this round, in which case the crew there can win the repair back.
+  const attempts = s.xrayOnline ? 0 : Math.min(workersByRoom.medbay.length, cfg.medbaySeats);
   let repairsGained = 0;
   let corruptLeft = corruptedAttempts;
   for (let a = 0; a < attempts; a++) {
@@ -377,7 +378,8 @@ export function startVote(
   const s = structuredClone(state);
   s.phase = 'VOTE';
   const living = livingPlayers(s).map((p) => p.id);
-  const list = candidates ?? living;
+  // A player the X-ray already verified as crew is never put on the ballot again.
+  const list = candidates ?? living.filter((id) => !playerById(s, id)!.verified);
   // A runoff is decided by the rest of the table: the two names on the ballot sit it out.
   const voters = stage === 'RUNOFF' ? living.filter((id) => !list.includes(id)) : living;
   s.vote = {
