@@ -111,7 +111,10 @@
     <p>Running the game on a monitor?</p>
     <button class="ghost" onclick={hostGame} disabled={busy}>Create a game</button>
   </div>
-  <button class="replay" onclick={() => { showIntroduction = true; }}>Replay introduction</button>
+  <div class="extras">
+    <button class="replay" onclick={() => { showIntroduction = true; }}>Replay introduction</button>
+    <a class="replay" href="/MIMIC-User-Guide.pdf" target="_blank" rel="noopener">User guide (PDF)</a>
+  </div>
 </main>
 {/if}
 
@@ -239,6 +242,7 @@
     font-size: 0.9rem;
   }
 
+  .extras { display: flex; flex-direction: column; align-items: center; }
   .replay { align-self: center; border: 0; background: transparent; color: var(--ink-dim); font-size: .8rem; text-decoration: underline; text-underline-offset: 4px; padding: .5rem; }
   h1:focus { outline: none; }
 </style>

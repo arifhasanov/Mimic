@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite dev --port 5173",
-    "build": "vite build",
+    "dev": "node scripts/copy-guide.mjs && vite dev --port 5173",
+    "build": "node scripts/copy-guide.mjs && vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run"

@@ -3,3 +3,4 @@ dist
 build
 .svelte-kit
 *.tsbuildinfo
+apps/web/static/MIMIC-User-Guide.pdf
